@@ -72,8 +72,10 @@ def session(day: date) -> tuple[datetime, datetime] | None:
     """Fake NYSE calendar for EST dates: 09:30-16:00 on weekdays."""
     if day.weekday() >= 5:
         return None
-    return (datetime(day.year, day.month, day.day, 14, 30, tzinfo=UTC),
-            datetime(day.year, day.month, day.day, 21, 0, tzinfo=UTC))
+    return (
+        datetime(day.year, day.month, day.day, 14, 30, tzinfo=UTC),
+        datetime(day.year, day.month, day.day, 21, 0, tzinfo=UTC),
+    )
 
 
 def make_project(tmp_path: Path, strategy: dict | None = None, limits: dict | None = None) -> Path:
@@ -94,8 +96,7 @@ def arm(project: Path) -> None:
     write_armed(project, project / "state", NOW)
 
 
-def record_live_plan(project: Path, snapshot: Snapshot | None = None, now: datetime = NOW,
-                     **ctx_overrides) -> dict:
+def record_live_plan(project: Path, snapshot: Snapshot | None = None, now: datetime = NOW, **ctx_overrides) -> dict:
     config = load_config(project / "config")
     snapshot = snapshot or make_snapshot(on_target_shares(), cash=1000)
     ctx = PlanContext(today=now.date(), now=now, live_requested=True, **ctx_overrides)
@@ -118,8 +119,9 @@ def order_payload(symbol="VTI", side="buy", amount="500.00", tool_use_id="toolu_
     }
 
 
-def capture_review(project: Path, symbol="VTI", side="buy", amount="500.00", now: datetime = NOW,
-                   event="PostToolUse") -> None:
+def capture_review(
+    project: Path, symbol="VTI", side="buy", amount="500.00", now: datetime = NOW, event="PostToolUse"
+) -> None:
     capture(
         {
             "hook_event_name": event,

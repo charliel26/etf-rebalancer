@@ -41,7 +41,7 @@ def main() -> int:
             print(out)
             print(json.loads(out)["hookSpecificOutput"]["permissionDecisionReason"], file=sys.stderr)
         return code
-    except BaseException as exc:  # noqa: BLE001 - fail closed on anything
+    except BaseException as exc:
         return _deny(f"guard error, failing closed: {type(exc).__name__}: {exc}")
 
 

@@ -65,10 +65,7 @@ def deployment_status(schedule: DeploymentSchedule, today: date) -> list[dict[st
         return []
     assert schedule.total_usd is not None
     per = schedule.total_usd / schedule.tranches
-    return [
-        {"date": d.isoformat(), "amount_usd": per, "released": d <= today}
-        for d in tranche_dates(schedule)
-    ]
+    return [{"date": d.isoformat(), "amount_usd": per, "released": d <= today} for d in tranche_dates(schedule)]
 
 
 def annual_reset_due(today: date, month: int, day: int, completed_years: frozenset[int]) -> bool:
@@ -352,8 +349,7 @@ def _checks(
         "orders_within_size_limits": all(inp.min_order <= o.notional_usd <= max_order for o in orders),
         "daily_notional_within_limit": sum((o.notional_usd for o in orders), ZERO) <= daily_left,
         "contribution_sum_matches": decision.contribution_allocated == decision.contribution_deployed,
-        "deferred_buys_equal_sells": sum(decision.deferred_buys.values(), ZERO)
-        == sum(decision.sells.values(), ZERO),
+        "deferred_buys_equal_sells": sum(decision.deferred_buys.values(), ZERO) == sum(decision.sells.values(), ZERO),
         "no_symbol_bought_and_sold": not (set(buys) & set(sells)),
         "sells_covered_by_eligible_lots": all(
             s in selections and selections[s].unfilled <= LOT_TOLERANCE for s in sells
@@ -365,9 +361,7 @@ def _checks(
             s in targets and values[s] - x >= targets[s] * decision.projected_total - tolerance
             for s, x in sells.items()
         ),
-        "wash_sale_clear": all(
-            not lots.buy_blocked(s, inp.today, inp.trades, inp.identical_groups) for s in buys
-        )
+        "wash_sale_clear": all(not lots.buy_blocked(s, inp.today, inp.trades, inp.identical_groups) for s in buys)
         and not any(recent_loss_sale(s) for s in sells),
     }
 
@@ -412,9 +406,7 @@ def build_plan(snapshot: Snapshot, config: Config, ctx: PlanContext) -> Plan:
             flags.append(f"UNPRICED:{holding.symbol}")
             continue
         other_values[holding.symbol] = other_values.get(holding.symbol, ZERO) + holding.shares * quote.price
-    satellite_value = sum(
-        (v for s, v in other_values.items() if s in strategy.satellite_symbols), ZERO
-    )
+    satellite_value = sum((v for s, v in other_values.items() if s in strategy.satellite_symbols), ZERO)
     unmanaged = sorted(s for s in other_values if s not in strategy.satellite_symbols)
     flags.extend(f"UNMANAGED_POSITION:{s}" for s in unmanaged)
     unmanaged_value = sum((other_values[s] for s in unmanaged), ZERO)
@@ -500,9 +492,7 @@ def build_plan(snapshot: Snapshot, config: Config, ctx: PlanContext) -> Plan:
                 "price": prices[s],
                 "shares": snapshot.shares(s),
                 "weight": values[s] / core if core > 0 else None,
-                "projected_weight": projected[s] / decision.projected_total
-                if decision.projected_total > 0
-                else None,
+                "projected_weight": projected[s] / decision.projected_total if decision.projected_total > 0 else None,
                 "target": targets[s],
                 "band_low": low,
                 "band_high": high,

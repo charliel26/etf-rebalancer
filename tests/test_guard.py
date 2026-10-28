@@ -39,10 +39,19 @@ class TestParseOrder:
         assert (order.symbol, order.side, order.amount, order.account) == ("VTI", "buy", D("12.5"), None)
 
     def test_safe_optional_fields(self):
-        order = parse_order({
-            "symbol": "VTI", "side": "sell", "amount": "10", "type": "market", "time_in_force": "gfd",
-            "extended_hours": False, "trading_session": "regular_hours", "account_number": "A1", "ref_id": "x",
-        })
+        order = parse_order(
+            {
+                "symbol": "VTI",
+                "side": "sell",
+                "amount": "10",
+                "type": "market",
+                "time_in_force": "gfd",
+                "extended_hours": False,
+                "trading_session": "regular_hours",
+                "account_number": "A1",
+                "ref_id": "x",
+            }
+        )
         assert order.account == "A1"
         assert parse_order({"symbol": "VTI", "side": "buy", "amount": "1", "extended_hours": "false"}).amount == 1
 
@@ -153,7 +162,7 @@ class TestOrderChecks:
 
     def test_integrity(self, project):
         limits = project / "config" / "limits.yaml"
-        limits.write_text(limits.read_text().replace('max_order_usd: \'1500\'', "max_order_usd: '1500.00'"))
+        limits.write_text(limits.read_text().replace("max_order_usd: '1500'", "max_order_usd: '1500.00'"))
         result = run(project)
         assert result.denied and "changed since arming: config/limits.yaml" in result.reason
 
@@ -225,7 +234,9 @@ class TestOrderChecks:
 
     def test_wash_sale_buy_block(self, project):
         with Ledger(project / "state" / "ledger.sqlite3") as ledger:
-            ledger.record_trade(TradeRecord("VTSAX", Side.SELL, TODAY - timedelta(days=3), D(100), had_loss=True), "manual")
+            ledger.record_trade(
+                TradeRecord("VTSAX", Side.SELL, TODAY - timedelta(days=3), D(100), had_loss=True), "manual"
+            )
         result = run(project)
         assert result.denied and "wash-sale" in result.reason
 
@@ -295,3 +306,81 @@ def test_hook_output_format():
         "permissionDecisionReason": "rebalancer guard: because",
     }
     assert hook_output(ALLOW) == (0, "")
+
+
+class TestCheckOrderDirect:
+    """Defensive checks that need a self-consistent but wrong plan document."""
+
+    def _ctx(self, project, **plan_changes):
+        from rebalancer.config import load_config
+        from rebalancer.guard import OrderContext
+        from rebalancer.ledger import RunRow
+        from rebalancer.plan import finalize
+
+        with Ledger(project / "state" / "ledger.sqlite3") as ledger:
+            run = ledger.live_run_for(TODAY)
+        doc = json.loads((project / run.plan_path).read_text())
+        doc.update(plan_changes)
+        doc = finalize(doc)
+        live_run = RunRow(doc["run_id"], TODAY, "live", doc["plan_sha256"], run.plan_path, False, doc["action"])
+        config = load_config(project / "config")
+        return OrderContext(
+            now=NOW,
+            today=TODAY,
+            env=LIVE_ENV,
+            limits=config.limits,
+            targets=frozenset(config.strategy.targets),
+            kill_file=False,
+            manifest_problems=(),
+            window=session(TODAY),
+            live_run=live_run,
+            plan=doc,
+            plan_error=None,
+            approved=False,
+            wash_sale_blocked=frozenset(),
+            review_found=True,
+        )
+
+    def test_consistent_plan_passes(self, project):
+        from rebalancer.guard import check_order
+
+        assert check_order(parse_order({"symbol": "VTI", "side": "buy", "amount": "500"}), self._ctx(project)) is None
+
+    @pytest.mark.parametrize(
+        ("changes", "fragment"),
+        [
+            ({"mode": "dry_run"}, "not a live plan"),
+            ({"date": "2026-11-01"}, "not for today"),
+            ({"blockers": ["OPEN_ORDERS"]}, "has blockers"),
+        ],
+    )
+    def test_wrong_but_sealed_plans(self, project, changes, fragment):
+        from rebalancer.guard import check_order
+
+        reason = check_order(
+            parse_order({"symbol": "VTI", "side": "buy", "amount": "500"}), self._ctx(project, **changes)
+        )
+        assert fragment in reason
+
+    def test_plan_not_matching_ledger(self, project):
+        from dataclasses import replace
+
+        from rebalancer.guard import check_order
+
+        ctx = self._ctx(project)
+        ctx = replace(ctx, live_run=replace(ctx.live_run, plan_sha256="0" * 64))
+        assert "does not match the ledger" in check_order(
+            parse_order({"symbol": "VTI", "side": "buy", "amount": "500"}), ctx
+        )
+
+    def test_absolute_plan_path(self, project):
+        from rebalancer.guard import _load_plan
+
+        with Ledger(project / "state" / "ledger.sqlite3") as ledger:
+            run = ledger.live_run_for(TODAY)
+        from dataclasses import replace
+
+        absolute = replace(run, plan_path=str(project / run.plan_path))
+        doc, error = _load_plan(absolute, project / "elsewhere")
+        assert error is None and doc["run_id"] == run.run_id
+        assert _load_plan(None, project) == (None, None)

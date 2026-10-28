@@ -50,9 +50,7 @@ class TestArbitraryAmounts:
         assert parse_strategy(raw).cash_reserve == D("4000.50")
 
     def test_date_object_accepted(self):
-        raw = strategy_with(
-            initial_deployment={"start_date": dt.date(2026, 11, 2), "total_usd": "1", "tranches": 1}
-        )
+        raw = strategy_with(initial_deployment={"start_date": dt.date(2026, 11, 2), "total_usd": "1", "tranches": 1})
         assert parse_strategy(raw).deployment.start_date == dt.date(2026, 11, 2)
 
     def test_single_fund_target_allowed(self):
@@ -123,8 +121,22 @@ def test_empty_satellites_and_groups_as_null():
         {"min_order_usd": "0"},
         {"max_order_usd": "0.5", "min_order_usd": "1"},
         {"max_daily_notional_usd": "100"},
-        {"execution_window": {"start": "15:55", "end": "09:35", "timezone": "America/New_York", "close_buffer_minutes": 5}},
-        {"execution_window": {"start": "9h", "end": "15:55", "timezone": "America/New_York", "close_buffer_minutes": 5}},
+        {
+            "execution_window": {
+                "start": "15:55",
+                "end": "09:35",
+                "timezone": "America/New_York",
+                "close_buffer_minutes": 5,
+            }
+        },
+        {
+            "execution_window": {
+                "start": "9h",
+                "end": "15:55",
+                "timezone": "America/New_York",
+                "close_buffer_minutes": 5,
+            }
+        },
         {"execution_window": {"start": 935, "end": "15:55", "timezone": "America/New_York", "close_buffer_minutes": 5}},
         {"execution_window": {"start": "09:35", "end": "15:55", "timezone": "UTC", "close_buffer_minutes": 5}},
         {"require_review": "yes"},

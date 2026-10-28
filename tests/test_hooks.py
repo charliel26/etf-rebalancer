@@ -12,7 +12,15 @@ from rebalancer.capture import capture
 from rebalancer.integrity import compute_manifest, verify_armed, write_armed
 from rebalancer.ledger import Ledger
 from rebalancer.nyse import execution_window, session_bounds
-from tests.builders import NOW, ORDER_TOOL, TODAY, arm, make_project, order_payload, record_live_plan
+from tests.builders import (
+    NOW,
+    ORDER_TOOL,
+    TODAY,
+    arm,
+    make_project,
+    order_payload,
+    record_live_plan,
+)
 from tests.conftest import REPO_ROOT, make_config
 
 
@@ -22,7 +30,12 @@ def run_hook(script, project, payload, env_extra=None):
     stdin = payload if isinstance(payload, str) else json.dumps(payload)
     return subprocess.run(
         [sys.executable, str(REPO_ROOT / "hooks" / script)],
-        input=stdin, capture_output=True, text=True, env=env, timeout=120, check=False,
+        input=stdin,
+        capture_output=True,
+        text=True,
+        env=env,
+        timeout=120,
+        check=False,
     )
 
 
@@ -36,12 +49,16 @@ def project(tmp_path):
 
 class TestGuardHookProcess:
     def test_read_tool_exits_zero_silently(self, project):
-        result = run_hook("guard_order.py", project, {"tool_name": "mcp__robinhood-trading__get_portfolio", "tool_input": {}})
+        result = run_hook(
+            "guard_order.py", project, {"tool_name": "mcp__robinhood-trading__get_portfolio", "tool_input": {}}
+        )
         assert result.returncode == 0
         assert result.stdout == ""
 
     def test_unlisted_tool_is_blocked_with_exit_2_and_json(self, project):
-        result = run_hook("guard_order.py", project, {"tool_name": "mcp__robinhood-trading__place_option_order", "tool_input": {}})
+        result = run_hook(
+            "guard_order.py", project, {"tool_name": "mcp__robinhood-trading__place_option_order", "tool_input": {}}
+        )
         assert result.returncode == 2
         body = json.loads(result.stdout)["hookSpecificOutput"]
         assert body["permissionDecision"] == "deny"
@@ -96,8 +113,17 @@ class TestCaptureInProcess:
         capture_review(project)
         assert not pre_tool_use(order_payload(tool_use_id="toolu_X"), project, LIVE_ENV, now=NOW, bounds=session).denied
         response = {"content": [{"type": "text", "text": json.dumps({"order": {"id": "rh-123", "state": "queued"}})}]}
-        capture({"hook_event_name": "PostToolUse", "tool_name": ORDER_TOOL, "tool_use_id": "toolu_X",
-                 "tool_input": {}, "tool_response": response}, project / "state", NOW)
+        capture(
+            {
+                "hook_event_name": "PostToolUse",
+                "tool_name": ORDER_TOOL,
+                "tool_use_id": "toolu_X",
+                "tool_input": {},
+                "tool_response": response,
+            },
+            project / "state",
+            NOW,
+        )
         with Ledger(project / "state" / "ledger.sqlite3") as ledger:
             line = next(x for x in ledger.lines(ledger.live_run_for(TODAY).run_id) if x.symbol == "VTI")
         assert (line.status, line.broker_order_id) == ("SUBMITTED", "rh-123")
@@ -108,8 +134,17 @@ class TestCaptureInProcess:
 
         capture_review(project)
         pre_tool_use(order_payload(tool_use_id="toolu_Y"), project, LIVE_ENV, now=NOW, bounds=session)
-        capture({"hook_event_name": "PostToolUseFailure", "tool_name": ORDER_TOOL, "tool_use_id": "toolu_Y",
-                 "tool_input": {}, "error": "insufficient buying power"}, project / "state", NOW)
+        capture(
+            {
+                "hook_event_name": "PostToolUseFailure",
+                "tool_name": ORDER_TOOL,
+                "tool_use_id": "toolu_Y",
+                "tool_input": {},
+                "error": "insufficient buying power",
+            },
+            project / "state",
+            NOW,
+        )
         with Ledger(project / "state" / "ledger.sqlite3") as ledger:
             line = next(x for x in ledger.lines(ledger.live_run_for(TODAY).run_id) if x.symbol == "VTI")
         assert line.status == "SUBMIT_FAILED"
@@ -139,8 +174,13 @@ class TestIntegrity:
 
     def test_repo_manifest_covers_guard_code(self):
         manifest = compute_manifest(REPO_ROOT)
-        for path in ("config/limits.yaml", "hooks/guard_order.py", "src/rebalancer/guard.py",
-                     "src/rebalancer/plan.py", ".claude/settings.json"):
+        for path in (
+            "config/limits.yaml",
+            "hooks/guard_order.py",
+            "src/rebalancer/guard.py",
+            "src/rebalancer/plan.py",
+            ".claude/settings.json",
+        ):
             assert path in manifest
 
 
@@ -152,13 +192,18 @@ class TestExecutionWindow:
 
     def test_half_day_ends_before_early_close(self):
         limits = make_config().limits
-        start, end = execution_window(TODAY, limits, lambda d: (NOW.replace(hour=14, minute=30), NOW.replace(hour=18)))
+        _, end = execution_window(TODAY, limits, lambda d: (NOW.replace(hour=14, minute=30), NOW.replace(hour=18)))
         assert end == datetime(2026, 11, 2, 17, 55, tzinfo=UTC)  # 12:55 ET
 
     def test_closed_and_empty_windows(self):
         limits = make_config().limits
         assert execution_window(TODAY, limits, lambda d: None) is None
-        assert execution_window(TODAY, limits, lambda d: (NOW.replace(hour=14, minute=30), NOW.replace(hour=14, minute=36))) is None
+        assert (
+            execution_window(
+                TODAY, limits, lambda d: (NOW.replace(hour=14, minute=30), NOW.replace(hour=14, minute=36))
+            )
+            is None
+        )
 
     def test_real_nyse_calendar(self):
         # Thanksgiving 2026 is closed; the day after closes at 13:00 ET (18:00 UTC).

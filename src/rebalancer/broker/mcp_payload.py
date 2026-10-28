@@ -19,9 +19,11 @@ def decode(tool_response: Any) -> Any:
         if isinstance(tool_response.get("content"), list):
             return decode(tool_response["content"])
         return tool_response
-    if isinstance(tool_response, list) and all(
-        isinstance(block, Mapping) and block.get("type") == "text" for block in tool_response
-    ) and tool_response:
+    if (
+        isinstance(tool_response, list)
+        and all(isinstance(block, Mapping) and block.get("type") == "text" for block in tool_response)
+        and tool_response
+    ):
         return decode("".join(str(block.get("text", "")) for block in tool_response))
     if isinstance(tool_response, str):
         try:

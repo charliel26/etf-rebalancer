@@ -251,7 +251,7 @@ def pre_tool_use(
     tool_name = str(payload.get("tool_name", ""))
     if not tool_name.startswith(PREFIX):
         return ALLOW  # not ours; the hook is only registered for this server anyway
-    short = tool_name[len(PREFIX):]
+    short = tool_name[len(PREFIX) :]
     if short not in ALLOWED_TOOLS:
         return deny(f"{short} is not on the robinhood-trading allowlist")
     if short != ORDER_TOOL:
@@ -261,13 +261,39 @@ def pre_tool_use(
         order = parse_order(payload.get("tool_input"))
     except GuardViolation as exc:
         return deny(str(exc))
+    return guard_and_claim(
+        order,
+        project_dir,
+        project_dir / "state",
+        environ,
+        now,
+        tool_use_id=str(payload.get("tool_use_id") or "") or None,
+        bounds=bounds,
+    )
+
+
+def guard_and_claim(
+    order: OrderRequest,
+    project_dir: Path,
+    state_dir: Path,
+    environ: Mapping[str, str],
+    now: datetime,
+    *,
+    tool_use_id: str | None,
+    bounds: SessionBounds = session_bounds,
+    review_found: bool | None = None,
+) -> GuardResult:
+    """Run every check for one order and, if all pass, claim its plan line.
+
+    Shared by the MCP hook (state_dir = state/) and the Alpaca paper executor
+    (state_dir = state/paper/, review_found=True because Alpaca has no review
+    step). The armed manifest is always the project's state/armed.json.
+    """
     try:
         config = load_config(project_dir / "config")
     except ConfigError as exc:
         return deny(f"config error: {exc}")
-
     limits = config.limits
-    state_dir = project_dir / "state"
     today = now.astimezone(NEW_YORK).date()
     ledger_path = state_dir / "ledger.sqlite3"
     if not ledger_path.exists():
@@ -278,6 +304,10 @@ def pre_tool_use(
         approved = bool(live_run and plan and ledger.has_approval(live_run.run_id, live_run.plan_sha256, today))
         trades = ledger.trades_since(today - timedelta(days=lots.WASH_SALE_DAYS + 1))
         groups = config.strategy.identical_groups
+        if review_found is None:
+            review_found = find_review(
+                state_dir / "raw" / today.isoformat(), order, now, limits.match_tolerance, limits.review_max_age
+            )
         ctx = OrderContext(
             now=now,
             today=today,
@@ -285,7 +315,7 @@ def pre_tool_use(
             limits=limits,
             targets=frozenset(config.strategy.targets),
             kill_file=(project_dir / "KILL").exists(),
-            manifest_problems=tuple(verify_armed(project_dir, state_dir)),
+            manifest_problems=tuple(verify_armed(project_dir, project_dir / "state")),
             window=execution_window(today, limits, bounds),
             live_run=live_run,
             plan=plan,
@@ -294,9 +324,7 @@ def pre_tool_use(
             wash_sale_blocked=frozenset(
                 s for s in config.strategy.targets if lots.buy_blocked(s, today, trades, groups)
             ),
-            review_found=find_review(
-                state_dir / "raw" / today.isoformat(), order, now, limits.match_tolerance, limits.review_max_age
-            ),
+            review_found=review_found,
         )
         reason = check_order(order, ctx)
         if reason is not None:
@@ -312,7 +340,7 @@ def pre_tool_use(
             daily_cap=limits.max_daily_notional,
             run_date=today,
             now=now,
-            tool_use_id=str(payload.get("tool_use_id") or "") or None,
+            tool_use_id=tool_use_id,
         )
         if not claim.ok:
             ledger.log("order_denied", {"reason": claim.reason, "order": order.__dict__}, now, live_run.run_id)
@@ -332,4 +360,3 @@ def hook_output(result: GuardResult) -> tuple[int, str]:
         }
     }
     return 2, json.dumps(body)
-

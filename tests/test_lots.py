@@ -85,8 +85,9 @@ class TestSelectLots:
         assert not sel.had_loss
 
     def test_requesting_more_than_held(self):
-        sel = lots.select_lots([lot("a", date(2020, 1, 1), 1, 50)], D(5), D(100), SALE, "fifo",
-                               recent_buy=False, min_holding_days=0)
+        sel = lots.select_lots(
+            [lot("a", date(2020, 1, 1), 1, 50)], D(5), D(100), SALE, "fifo", recent_buy=False, min_holding_days=0
+        )
         assert sel.shares_selected == D(1)
         assert sel.unfilled == D(4)
 
@@ -105,14 +106,16 @@ class TestSelectLots:
         assert sel.blocked == (("old_loss", "WASH_SALE"),)
 
     def test_loss_lot_allowed_without_recent_buy(self):
-        sel = lots.select_lots([lot("loss", date(2025, 1, 1), 1, 120)], D(1), D(100), SALE, "fifo",
-                               recent_buy=False, min_holding_days=0)
+        sel = lots.select_lots(
+            [lot("loss", date(2025, 1, 1), 1, 120)], D(1), D(100), SALE, "fifo", recent_buy=False, min_holding_days=0
+        )
         assert sel.lt_gain == D(-20)
         assert sel.had_loss
 
     def test_zero_gain_lot_is_not_wash_blocked(self):
-        sel = lots.select_lots([lot("flat", date(2026, 5, 20), 1, 100)], D(1), D(100), SALE, "fifo",
-                               recent_buy=True, min_holding_days=0)
+        sel = lots.select_lots(
+            [lot("flat", date(2026, 5, 20), 1, 100)], D(1), D(100), SALE, "fifo", recent_buy=True, min_holding_days=0
+        )
         assert sel.shares_selected == D(1)
         assert not sel.had_loss
 
@@ -123,8 +126,9 @@ class TestSelectLots:
         assert sel.blocked == (("young", "MIN_HOLDING"),)
 
     def test_zero_shares_requested(self):
-        sel = lots.select_lots([lot("a", date(2020, 1, 1), 1, 50)], D(0), D(100), SALE, "fifo",
-                               recent_buy=False, min_holding_days=0)
+        sel = lots.select_lots(
+            [lot("a", date(2020, 1, 1), 1, 50)], D(0), D(100), SALE, "fifo", recent_buy=False, min_holding_days=0
+        )
         assert sel.picks == ()
 
     @pytest.mark.parametrize(("shares", "price"), [(D(-1), D(100)), (D(1), D(0))])
@@ -171,14 +175,18 @@ class TestRemoveSold:
     def test_rejects_unknown_or_oversold_pick(self):
         a = lot("a", date(2020, 1, 1), 1, 50)
         with pytest.raises(ValueError):
-            lots.remove_sold([a], [lots.LotPick(lot=lot("x", date(2020, 1, 1), 1, 50), shares=D(1), gain=D(0), long_term=True)])
+            lots.remove_sold(
+                [a], [lots.LotPick(lot=lot("x", date(2020, 1, 1), 1, 50), shares=D(1), gain=D(0), long_term=True)]
+            )
         with pytest.raises(ValueError):
             lots.remove_sold([a], [lots.LotPick(lot=a, shares=D(2), gain=D(0), long_term=True)])
 
 
 class TestWashSaleGuard:
     def trades(self, *items):
-        return [TradeRecord(symbol=s, side=side, trade_date=d, notional=D(100), had_loss=loss) for s, side, d, loss in items]
+        return [
+            TradeRecord(symbol=s, side=side, trade_date=d, notional=D(100), had_loss=loss) for s, side, d, loss in items
+        ]
 
     def test_group_lookup(self):
         assert lots.group_of("QQQ", GROUPS) == frozenset({"QQQM", "QQQ"})

@@ -28,9 +28,7 @@ Targets = Mapping[str, Decimal]
 
 def _validate(values: Values, targets: Targets) -> None:
     if set(values) != set(targets):
-        raise ValueError(
-            f"values and targets must cover the same funds: {sorted(values)} vs {sorted(targets)}"
-        )
+        raise ValueError(f"values and targets must cover the same funds: {sorted(values)} vs {sorted(targets)}")
     if any(w <= 0 for w in targets.values()):
         raise ValueError("target weights must be positive")
     if sum(targets.values(), ZERO) != ONE:

@@ -277,9 +277,7 @@ def parse_strategy(raw: Any) -> StrategyConfig:
         risk=RiskConfig(
             ewma_lambda=lam,
             vol_window_days=_int(risk["vol_window_days"], "risk.vol_window_days", minimum=2),
-            drawdown_lookback_days=_int(
-                risk["drawdown_lookback_days"], "risk.drawdown_lookback_days", minimum=2
-            ),
+            drawdown_lookback_days=_int(risk["drawdown_lookback_days"], "risk.drawdown_lookback_days", minimum=2),
             vol_flag=_decimal(risk["vol_flag"], "risk.vol_flag"),
             drawdown_flag=_decimal(risk["drawdown_flag"], "risk.drawdown_flag"),
             satellite_cap=_decimal(risk["satellite_cap"], "risk.satellite_cap"),
@@ -339,21 +337,15 @@ def parse_limits(raw: Any) -> Limits:
         match_tolerance=_decimal(doc["match_tolerance_usd"], "match_tolerance_usd"),
         quote_max_age=timedelta(minutes=_int(doc["quote_max_age_minutes"], "quote_max_age_minutes", minimum=1)),
         plan_max_age=timedelta(minutes=_int(doc["plan_max_age_minutes"], "plan_max_age_minutes", minimum=1)),
-        review_max_age=timedelta(
-            minutes=_int(doc["review_max_age_minutes"], "review_max_age_minutes", minimum=1)
-        ),
+        review_max_age=timedelta(minutes=_int(doc["review_max_age_minutes"], "review_max_age_minutes", minimum=1)),
         require_review=_bool(doc["require_review"], "require_review"),
         window_start=start,
         window_end=end,
         timezone=window["timezone"],
-        close_buffer=timedelta(
-            minutes=_int(window["close_buffer_minutes"], "execution_window.close_buffer_minutes")
-        ),
+        close_buffer=timedelta(minutes=_int(window["close_buffer_minutes"], "execution_window.close_buffer_minutes")),
         agentic_account_id=account.strip() if isinstance(account, str) else None,
         min_holding_days=_int(compliance["min_holding_days"], "compliance.min_holding_days"),
-        approval_for_all_trades=_bool(
-            compliance["approval_for_all_trades"], "compliance.approval_for_all_trades"
-        ),
+        approval_for_all_trades=_bool(compliance["approval_for_all_trades"], "compliance.approval_for_all_trades"),
     )
 
 

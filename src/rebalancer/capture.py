@@ -31,7 +31,7 @@ def capture(payload: Mapping[str, Any], state_dir: Path, now: datetime) -> Path 
     tool_name = str(payload.get("tool_name", ""))
     if not tool_name.startswith(PREFIX):
         return None
-    short = tool_name[len(PREFIX):]
+    short = tool_name[len(PREFIX) :]
     event = str(payload.get("hook_event_name", ""))
     tool_use_id = str(payload.get("tool_use_id") or "unknown")
     out_dir = raw_dir_for(state_dir, now)

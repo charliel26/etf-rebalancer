@@ -24,7 +24,7 @@ def main() -> int:
         from rebalancer.capture import capture
 
         capture(json.load(sys.stdin), state_dir, datetime.now(UTC))
-    except BaseException:  # noqa: BLE001 - never block, but leave a trace
+    except BaseException:
         try:
             state_dir.mkdir(parents=True, exist_ok=True)
             with (state_dir / "hook_errors.log").open("a") as log:

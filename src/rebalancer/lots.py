@@ -137,9 +137,7 @@ def select_lots(
             continue
         take = min(lot.shares, remaining)
         long_term = is_long_term(lot.acquired, sale_date)
-        picks.append(
-            LotPick(lot=lot, shares=take, gain=take * (price - lot.cost_per_share), long_term=long_term)
-        )
+        picks.append(LotPick(lot=lot, shares=take, gain=take * (price - lot.cost_per_share), long_term=long_term))
         remaining -= take
     st_gain = sum((p.gain for p in picks if not p.long_term), ZERO)
     lt_gain = sum((p.gain for p in picks if p.long_term), ZERO)
@@ -151,6 +149,41 @@ def select_lots(
         lt_gain=lt_gain,
         blocked=tuple(blocked),
     )
+
+
+@dataclass(frozen=True)
+class Fill:
+    """An executed trade (used where the broker exposes no tax lots, e.g. Alpaca)."""
+
+    order_id: str
+    symbol: str
+    side: Side
+    filled_on: date
+    shares: Decimal
+    price: Decimal
+
+
+def lots_from_fills(fills: Iterable[Fill]) -> tuple[TaxLot, ...]:
+    """Open lots implied by fills: each buy opens a lot, each sell relieves FIFO
+    (which is what Alpaca and Robinhood do without specific-lot instructions)."""
+    open_lots: list[TaxLot] = []
+    for fill in sorted(fills, key=lambda f: (f.filled_on, f.side != Side.BUY, f.order_id)):
+        if fill.side == Side.BUY:
+            open_lots.append(TaxLot(fill.order_id, fill.symbol, fill.filled_on, fill.shares, fill.price))
+            continue
+        held = [lot for lot in open_lots if lot.symbol == fill.symbol]
+        selection = select_lots(
+            held, fill.shares, fill.price, fill.filled_on, "fifo", recent_buy=False, min_holding_days=0
+        )
+        if selection.unfilled > 0:
+            raise ValueError(f"sell {fill.order_id} of {fill.shares} {fill.symbol} exceeds lots held")
+        remaining = {lot.lot_id: lot for lot in remove_sold(held, selection.picks)}
+        open_lots = [
+            remaining[lot.lot_id] if lot.symbol == fill.symbol else lot
+            for lot in open_lots
+            if lot.symbol != fill.symbol or lot.lot_id in remaining
+        ]
+    return tuple(open_lots)
 
 
 def remove_sold(lots: Sequence[TaxLot], picks: Iterable[LotPick]) -> tuple[TaxLot, ...]:
@@ -192,22 +225,14 @@ def loss_sale_blocked(
 ) -> bool:
     """W1: no loss may be realized if the symbol (or its group) was bought in the last 30 days."""
     group = group_of(symbol, groups)
-    return any(
-        t.side == Side.BUY and t.symbol in group and within_window(t.trade_date, sale_date)
-        for t in trades
-    )
+    return any(t.side == Side.BUY and t.symbol in group and within_window(t.trade_date, sale_date) for t in trades)
 
 
-def buy_blocked(
-    symbol: str, buy_date: date, trades: Iterable[TradeRecord], groups: Iterable[frozenset[str]]
-) -> bool:
+def buy_blocked(symbol: str, buy_date: date, trades: Iterable[TradeRecord], groups: Iterable[frozenset[str]]) -> bool:
     """W2: no buy if the symbol (or its group) was sold at a loss in the last 30 days.
     Sales with unknown P/L (had_loss None) count as loss sales."""
     group = group_of(symbol, groups)
     return any(
-        t.side == Side.SELL
-        and t.symbol in group
-        and t.had_loss is not False
-        and within_window(t.trade_date, buy_date)
+        t.side == Side.SELL and t.symbol in group and t.had_loss is not False and within_window(t.trade_date, buy_date)
         for t in trades
     )

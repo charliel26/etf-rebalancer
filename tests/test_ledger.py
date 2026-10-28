@@ -36,8 +36,17 @@ def ledger(tmp_path):
 
 
 def claim(ledger, symbol="VXUS", side="buy", amount="200", cap="3000", tool_use_id="t1", run_id="r1", now=NOW):
-    return ledger.claim_line(run_id, symbol, side, D(amount), tolerance=D(1), daily_cap=D(cap),
-                             run_date=DAY, now=now, tool_use_id=tool_use_id)
+    return ledger.claim_line(
+        run_id,
+        symbol,
+        side,
+        D(amount),
+        tolerance=D(1),
+        daily_cap=D(cap),
+        run_date=DAY,
+        now=now,
+        tool_use_id=tool_use_id,
+    )
 
 
 class TestRuns:
@@ -48,7 +57,10 @@ class TestRuns:
         assert ledger.run("r1") == run
         assert ledger.run("missing") is None
         lines = ledger.lines("r1")
-        assert [(x.line_id, x.status, x.notional_usd) for x in lines] == [("L1", "PENDING", D(300)), ("L2", "PENDING", D(200))]
+        assert [(x.line_id, x.status, x.notional_usd) for x in lines] == [
+            ("L1", "PENDING", D(300)),
+            ("L2", "PENDING", D(200)),
+        ]
         assert lines[0].est_had_loss is True and lines[1].est_had_loss is None
 
     def test_one_live_run_per_date(self, ledger):
@@ -61,7 +73,9 @@ class TestRuns:
         assert ledger.live_run_for(DAY).run_id == "r1"
 
     def test_line_order_is_numeric(self, ledger):
-        orders = [{"line_id": f"L{i}", "symbol": "VTI", "side": "buy", "notional_usd": 1.0, "reason": "x"} for i in (10, 2, 1)]
+        orders = [
+            {"line_id": f"L{i}", "symbol": "VTI", "side": "buy", "notional_usd": 1.0, "reason": "x"} for i in (10, 2, 1)
+        ]
         ledger.record_run(plan(orders=orders, lots={}), "p", NOW)
         assert [x.line_id for x in ledger.lines("r1")] == ["L1", "L2", "L10"]
 
@@ -128,8 +142,9 @@ class TestLifecycle:
 
 
 def order(order_id, symbol, side, state, notional="200", filled="0", created=NOW, filled_at=None):
-    return BrokerOrder(order_id, symbol, side, state, None if notional is None else D(notional), D(filled),
-                       created, filled_at)
+    return BrokerOrder(
+        order_id, symbol, side, state, None if notional is None else D(notional), D(filled), created, filled_at
+    )
 
 
 class TestReconcile:

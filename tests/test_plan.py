@@ -2,7 +2,6 @@
 
 from dataclasses import replace
 from datetime import date, timedelta
-from decimal import Decimal
 
 import pytest
 
@@ -26,6 +25,7 @@ from rebalancer.plan import (
 )
 from tests.builders import NOW, OLD, PRICES, TODAY, make_snapshot, on_target_shares, vals
 from tests.conftest import TARGETS, D, make_config
+
 
 def lot_for(symbol, value, cost=None, acquired=OLD, lot_id=None):
     price = PRICES[symbol]
@@ -215,8 +215,9 @@ class TestBandRebalance:
 
     def test_no_cap_means_no_downgrade(self):
         lots_map = {"VTI": (lot_for("VTI", 6200, cost=100, acquired=date(2026, 9, 1)),)}
-        d = decide_trades(inputs(BREACHED, lots_map=lots_map, max_st_gain=None, max_order=None,
-                                 daily_notional_left=None))
+        d = decide_trades(
+            inputs(BREACHED, lots_map=lots_map, max_st_gain=None, max_order=None, daily_notional_left=None)
+        )
         assert d.rebalance == "full"
         assert d.sells["VTI"] == D(1200)
 
@@ -284,9 +285,7 @@ class TestAnnualReset:
 
     def test_without_cap(self):
         lots_map = {"VTI": (lot_for("VTI", 5500, cost=100, acquired=date(2026, 9, 1)),)}
-        d = decide_trades(
-            inputs(vals(5500, 1800, 1350, 1350), lots_map=lots_map, annual_reset=True, max_st_gain=None)
-        )
+        d = decide_trades(inputs(vals(5500, 1800, 1350, 1350), lots_map=lots_map, annual_reset=True, max_st_gain=None))
         assert "ST_CAP_EXCEEDED" not in d.flags
 
 
@@ -304,7 +303,7 @@ class TestSellLegs:
         inp = inputs(BREACHED)
         target = {**zeros(), "VTI": D("10.004")}
         buys = {**zeros(), "VTI": D("20.00")}
-        new_buys, sells, selections, flags, _ = planmod._sell_legs(inp, target, buys)
+        new_buys, sells, selections, _, _ = planmod._sell_legs(inp, target, buys)
         assert new_buys["VTI"] == D("10.00")
         assert sells == zeros() and selections == {}
 
@@ -329,8 +328,13 @@ class TestBuildPlan:
         assert p.totals == {"buys": D(1000), "sells": D(0)}
         doc = plan_to_dict(p)
         assert verify_plan_dict(doc)
-        assert doc["orders"][0] == {"line_id": "L1", "symbol": "AVUV", "side": "buy",
-                                    "notional_usd": 150.0, "reason": "contribution"}
+        assert doc["orders"][0] == {
+            "line_id": "L1",
+            "symbol": "AVUV",
+            "side": "buy",
+            "notional_usd": 150.0,
+            "reason": "contribution",
+        }
 
     def test_live_mode_when_requested_and_clean(self, config):
         p = build_plan(make_snapshot(on_target_shares(), cash=1000), config, ctx(live_requested=True))
@@ -340,7 +344,7 @@ class TestBuildPlan:
     def test_sells_listed_before_buys_and_deferred_orders(self, config):
         shares = {s: v / PRICES[s] for s, v in vals(7000, 1000, 1000, 1000).items()}
         p = build_plan(make_snapshot(shares, cash=300), config, ctx())
-        assert [o.side for o in p.orders][0] == Side.SELL
+        assert p.orders[0].side == Side.SELL
         assert p.deferred_orders and all(o.reason == "redeploy_sale_proceeds" for o in p.deferred_orders)
         assert sum(o.notional_usd for o in p.deferred_orders) == p.totals["sells"]
 
@@ -383,8 +387,7 @@ class TestBuildPlan:
         config = make_config({"satellite_symbols": ["TSLA"]})
         extra = (Holding("TSLA", D(2)), Holding("XYZ", D(1)), Holding("ABC", D(3)), Holding("ZERO", D(0)))
         quotes = {**PRICES, "TSLA": D(250), "XYZ": D(100)}
-        p = build_plan(make_snapshot(on_target_shares(), cash=0, quotes=quotes, extra_holdings=extra),
-                       config, ctx())
+        p = build_plan(make_snapshot(on_target_shares(), cash=0, quotes=quotes, extra_holdings=extra), config, ctx())
         assert p.portfolio["satellite_value"] == 500.0
         assert p.portfolio["unmanaged_value"] == 100.0
         assert p.portfolio["total_value"] == 10600.0
@@ -410,11 +413,15 @@ class TestBuildPlan:
         assert p.portfolio["funds"]["VTI"]["weight"] is None  # empty core
 
     def test_tradability_problems_block_trading(self, config):
-        tradability = (Tradability("VTI", True, False), Tradability("VXUS", False, True),
-                       Tradability("QQQM", True, True))
+        tradability = (
+            Tradability("VTI", True, False),
+            Tradability("VXUS", False, True),
+            Tradability("QQQM", True, True),
+        )
         p = build_plan(make_snapshot({}, cash=1000, tradability=tradability), config, ctx())
-        assert {"NOT_TRADABLE_IN_DOLLARS:VTI", "NOT_TRADABLE_IN_DOLLARS:VXUS",
-                "TRADABILITY_UNKNOWN:AVUV"} <= set(p.flags)
+        assert {"NOT_TRADABLE_IN_DOLLARS:VTI", "NOT_TRADABLE_IN_DOLLARS:VXUS", "TRADABILITY_UNKNOWN:AVUV"} <= set(
+            p.flags
+        )
         assert p.orders == ()  # blocked funds dominate an empty core: nothing can stay on target
 
     def test_lot_mismatch_blocks_sales(self, config):

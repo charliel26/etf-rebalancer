@@ -253,9 +253,7 @@ class TestContributionRule:
                 assert v[s] + result.amounts[s] <= TARGETS[s] * new_total + Decimal("1e-9")
         if d < c:
             # Maximal: unblocked gaps at the new core absorb exactly d.
-            absorb = sum(
-                max(Decimal(0), TARGETS[s] * new_total - v[s]) for s in SYMBOLS if s not in blocked
-            )
+            absorb = sum(max(Decimal(0), TARGETS[s] * new_total - v[s]) for s in SYMBOLS if s not in blocked)
             assert abs(absorb - d) <= Decimal("1e-9")
 
     @settings(max_examples=300)

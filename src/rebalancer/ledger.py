@@ -19,7 +19,7 @@ from pathlib import Path
 from typing import Any
 
 from .models import Side, TradeRecord
-from .money import ZERO, to_decimal
+from .money import CENT, ZERO, to_decimal
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS runs (
@@ -214,7 +214,7 @@ class Ledger:
                             order["line_id"],
                             order["symbol"],
                             order["side"],
-                            str(to_decimal(order["notional_usd"])),
+                            str(to_decimal(order["notional_usd"]).quantize(CENT)),
                             order["reason"],
                             None if loss is None else int(loss),
                             now.isoformat(),
@@ -241,9 +241,7 @@ class Ledger:
         return None if row is None else self._run(row)
 
     def live_run_for(self, day: date) -> RunRow | None:
-        row = self._db.execute(
-            "SELECT * FROM runs WHERE run_date = ? AND mode = 'live'", (day.isoformat(),)
-        ).fetchone()
+        row = self._db.execute("SELECT * FROM runs WHERE run_date = ? AND mode = 'live'", (day.isoformat(),)).fetchone()
         return None if row is None else self._run(row)
 
     @staticmethod
@@ -365,8 +363,15 @@ class Ledger:
 
     # ------------------------------------------------------------ reconciliation
 
-    def reconcile(self, run_id: str, orders: Iterable[BrokerOrder], now: datetime, *, tolerance: Decimal,
-                  not_placed_after_minutes: int = 5) -> dict[str, str]:
+    def reconcile(
+        self,
+        run_id: str,
+        orders: Iterable[BrokerOrder],
+        now: datetime,
+        *,
+        tolerance: Decimal,
+        not_placed_after_minutes: int = 5,
+    ) -> dict[str, str]:
         """Update line statuses from broker orders. Returns {line_id: new status}."""
         orders = list(orders)
         by_id = {o.order_id: o for o in orders}

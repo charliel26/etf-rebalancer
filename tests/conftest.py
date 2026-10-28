@@ -15,7 +15,7 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 TARGETS = {"AVUV": Decimal("0.15"), "QQQM": Decimal("0.15"), "VTI": Decimal("0.50"), "VXUS": Decimal("0.20")}
 
 
-def D(value: object) -> Decimal:  # noqa: N802 - short helper used everywhere in tests
+def D(value: object) -> Decimal:
     return Decimal(str(value))
 
 
