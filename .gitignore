@@ -27,3 +27,4 @@ backtest/data/cache/
 # Local overrides
 .claude/settings.local.json
 .env
+backtest/out/

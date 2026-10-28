@@ -1,0 +1,63 @@
+# Pre-registered backtest parameters (STRATEGY.md §13.9).
+# Fixed before any market data was loaded. Changing anything here after seeing
+# results must be recorded in the change log of backtest/report.md.
+
+initial_capital_usd: "9000"      # any amount; all strategies start with the same cash
+tranches: 3                       # phased deployment: day 0, +1 month, +2 months
+
+contributions:
+  probability_per_trading_day: "0.047619047619"   # 1/21: about monthly, irregular gaps
+  median_usd: "300"
+  log_sigma: "0.75"
+  min_usd: "50"
+  max_usd: "5000"
+
+seeds:
+  headline: 0
+  robustness: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20]
+
+costs_bps: "5"                    # per buy and per sell, on notional
+dividend_lag_trading_days: 5
+min_cash_to_deploy_usd: "25"
+min_order_usd: "1"
+warmup_trading_days: 21           # EMA warm-up before day 0
+
+# Short-term-gain cap as a fraction of account value (100 USD on a 9,000 USD account).
+st_cap_fraction_of_value: "0.0111111111"
+
+taxes:
+  short_term: "0.22"
+  long_term: "0.15"
+  dividends: "0.15"
+  interest: "0.22"
+  pay_month: 4
+  pay_day: 15
+
+annual_reset: {month: 1, day: 15}
+lot_method: tax_aware             # headline; FIFO is a sensitivity
+band_widths: ["0.10", "0.20", "0.30"]
+headline_band_width: "0.20"
+walk_forward_blocks: 5
+
+crisis_windows:
+  - {name: "2000-2002", start: "2000-01-01", end: "2002-12-31"}
+  - {name: "2008-2009", start: "2008-01-01", end: "2009-12-31"}
+  - {name: "2020 Q1", start: "2020-01-01", end: "2020-03-31"}
+  - {name: "2022", start: "2022-01-01", end: "2022-12-31"}
+
+signal:
+  ema_span: 8
+  horizons: [1, 5, 20]
+
+# Sleeve -> (real ETF, pre-inception proxy). Proxy returns are used through the
+# ETF's inception month; the ETF from the first trading day of the next month.
+sleeves:
+  VTI: {etf: VTI, proxy: VTSMX}
+  VXUS: {etf: VXUS, proxy: VGTSX}
+  QQQM: {etf: QQQM, proxy: QQQ}
+  AVUV: {etf: AVUV, proxy: VISVX}
+  AVUV_DFSVX: {etf: AVUV, proxy: DFSVX}   # sensitivity only
+vt_proxy:
+  etf: VT
+  blend: {VTSMX: "0.5", VGTSX: "0.5"}     # buy-and-hold from the sample start (drifts like cap weights)
+risk_free: {source: fred, series: DTB3}
