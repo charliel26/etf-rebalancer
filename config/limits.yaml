@@ -1,0 +1,30 @@
+# Hard limits, enforced by the planner AND by the guard hook.
+# Edit by hand, then run `rebalancer arm` in a terminal.
+
+min_order_usd: "1"
+max_order_usd: "1500"
+max_daily_notional_usd: "3000"        # gross buys + sells per New York trading date
+max_st_gain_per_rebalance_usd: "100"  # net short-term gain before downgrading to band-edge
+
+# Guard matching and freshness
+match_tolerance_usd: "1"
+quote_max_age_minutes: 15
+plan_max_age_minutes: 60
+review_max_age_minutes: 10
+require_review: true                  # a matching review_equity_order must precede each order
+
+# Orders are only allowed inside this window on NYSE trading days, and never
+# later than close_buffer_minutes before the close (handles half-days).
+execution_window:
+  start: "09:35"
+  end: "15:55"
+  timezone: America/New_York
+  close_buffer_minutes: 5
+
+# If set, any order naming a different account is denied.
+agentic_account_id: null
+
+# Future bank personal-trading rules (off by default).
+compliance:
+  min_holding_days: 0
+  approval_for_all_trades: false

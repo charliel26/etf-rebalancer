@@ -1,0 +1,96 @@
+{
+  "$schema": "https://json.schemastore.org/claude-code-settings.json",
+  "permissions": {
+    "disableBypassPermissionsMode": "disable",
+    "allow": [
+      "mcp__robinhood-trading__get_portfolio",
+      "mcp__robinhood-trading__get_equity_positions",
+      "mcp__robinhood-trading__get_equity_quotes",
+      "mcp__robinhood-trading__get_equity_historicals",
+      "mcp__robinhood-trading__get_equity_tax_lots",
+      "mcp__robinhood-trading__get_equity_tradability",
+      "mcp__robinhood-trading__get_equity_orders",
+      "mcp__robinhood-trading__review_equity_order",
+      "Bash(uv run rebalancer status)",
+      "Bash(uv run rebalancer snapshot *)",
+      "Bash(uv run rebalancer plan *)",
+      "Bash(uv run rebalancer reconcile *)",
+      "Bash(uv run rebalancer report *)"
+    ],
+    "ask": [
+      "mcp__robinhood-trading__place_equity_order",
+      "mcp__robinhood-trading__cancel_equity_order"
+    ],
+    "deny": [
+      "mcp__robinhood-trading__get_equity_news",
+      "mcp__robinhood-trading__*news*",
+      "mcp__robinhood-trading__*option*",
+      "mcp__robinhood-trading__*crypto*",
+      "mcp__robinhood-trading__*watchlist*",
+      "mcp__robinhood-trading__*scan*",
+      "mcp__robinhood-trading__*alert*",
+      "mcp__robinhood-trading__*stop*",
+      "mcp__robinhood-trading__*limit*",
+      "mcp__robinhood-trading__*trailing*",
+      "mcp__robinhood-trading__*bracket*",
+      "mcp__robinhood-trading__*margin*",
+      "mcp__robinhood-trading__*transfer*",
+      "mcp__robinhood-trading__*deposit*",
+      "mcp__robinhood-trading__*withdraw*",
+      "mcp__robinhood-trading__*card*",
+      "mcp__robinhood-trading__search*",
+      "Bash(*rebalancer approve*)",
+      "Bash(*rebalancer arm*)",
+      "Bash(*rebalancer rearm*)",
+      "Bash(*rebalancer dismiss-reset*)",
+      "Edit(/config/**)",
+      "Write(/config/**)",
+      "Edit(/state/**)",
+      "Write(/state/**)",
+      "Edit(/.claude/settings.json)",
+      "Write(/.claude/settings.json)"
+    ]
+  },
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "mcp__robinhood-trading__.*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "${CLAUDE_PROJECT_DIR}/.venv/bin/python",
+            "args": ["${CLAUDE_PROJECT_DIR}/hooks/guard_order.py"],
+            "timeout": 60,
+            "onFailure": "block"
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "mcp__robinhood-trading__.*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "${CLAUDE_PROJECT_DIR}/.venv/bin/python",
+            "args": ["${CLAUDE_PROJECT_DIR}/hooks/capture_mcp.py"],
+            "timeout": 60
+          }
+        ]
+      }
+    ],
+    "PostToolUseFailure": [
+      {
+        "matcher": "mcp__robinhood-trading__.*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "${CLAUDE_PROJECT_DIR}/.venv/bin/python",
+            "args": ["${CLAUDE_PROJECT_DIR}/hooks/capture_mcp.py"],
+            "timeout": 60
+          }
+        ]
+      }
+    ]
+  }
+}

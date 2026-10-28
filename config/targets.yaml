@@ -1,0 +1,56 @@
+# Strategy configuration. Edit by hand, then run `rebalancer arm` in a terminal
+# (the guard refuses orders until the new file hashes are armed).
+# See STRATEGY.md for what every parameter does.
+
+# Core targets. Must sum to exactly 1. These symbols are the only ones ever traded.
+targets:
+  VTI: "0.50"
+  VXUS: "0.20"
+  QQQM: "0.15"
+  AVUV: "0.15"
+
+# Relative band half-width: a fund breaches when |w - w*| / w* > band_width.
+band_width: "0.20"
+
+# Individual stocks / experiments. Never traded, never in the core weights,
+# reported against the satellite cap.
+satellite_symbols: []
+
+# Wash-sale groups: a trade in any member counts for every member.
+substantially_identical:
+  - [VTI, VTSAX, VTSMX]
+  - [VXUS, VTIAX, VGTSX]
+  - [QQQM, QQQ]
+  - [AVUV]
+
+cash:
+  # Cash above the reserve is deployed only when it exceeds this amount.
+  min_cash_to_deploy_usd: "25"
+  # Cash that always stays uninvested (any amount; 0 = invest everything).
+  cash_reserve_usd: "0"
+
+# Phased initial deployment of a lump sum (STRATEGY.md §8). Any amount works:
+# set total_usd to what you want phased in, and start_date to the first tranche
+# date. Leave either null to deploy cash as soon as it is available.
+initial_deployment:
+  start_date: null    # e.g. 2026-11-02
+  total_usd: null     # e.g. "8100"
+  tranches: 3
+
+# Annual full-reset proposal (always needs manual approval).
+annual_reset:
+  month: 1
+  day: 15
+
+# fifo: what Robinhood does for dollar-based sells (default, live-safe).
+# tax_aware: losses first, then smallest gains (needs broker lot selection;
+#            dry-run and backtest only until the MCP supports lot ids).
+lot_method: fifo
+
+risk:
+  ewma_lambda: "0.94"
+  vol_window_days: 63
+  drawdown_lookback_days: 756
+  vol_flag: "0.20"
+  drawdown_flag: "0.25"
+  satellite_cap: "0.15"

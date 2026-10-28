@@ -1,0 +1,64 @@
+[build-system]
+requires = ["hatchling>=1.25"]
+build-backend = "hatchling.build"
+
+[project]
+name = "etf-rebalancer"
+version = "0.1.0"
+description = "Deterministic, tax-aware, band-based ETF rebalancer with a fail-closed execution guard for an LLM agent."
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    "pyyaml>=6.0",
+    "exchange-calendars>=4.5",
+]
+
+[project.optional-dependencies]
+backtest = [
+    "numpy>=1.26",
+    "pandas>=2.1",
+    "matplotlib>=3.8",
+    "yfinance>=0.2.40",
+]
+dev = [
+    "pytest>=8.0",
+    "pytest-cov>=5.0",
+    "hypothesis>=6.100",
+    "statsmodels>=0.14",
+    "ruff>=0.6",
+]
+
+[project.scripts]
+rebalancer = "rebalancer.cli:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/rebalancer"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]
+addopts = "-ra --strict-markers"
+markers = [
+    "slow: long-running tests (backtest end-to-end)",
+]
+filterwarnings = [
+    # Raised inside exchange_calendars under pandas 3.1; not our code.
+    "ignore:Series.values returning an ndarray:DeprecationWarning",
+    "ignore:Series.values returning an ndarray",
+]
+
+[tool.coverage.run]
+branch = true
+source = ["rebalancer", "backtest"]
+
+[tool.coverage.report]
+show_missing = true
+skip_covered = false
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "B", "UP", "SIM", "RUF"]
+ignore = ["RUF001", "RUF002", "RUF003"]

@@ -1,0 +1,29 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+*.egg-info/
+build/
+dist/
+.pytest_cache/
+.hypothesis/
+.ruff_cache/
+.coverage
+.coverage.*
+htmlcov/
+
+# Runtime state: ledger, snapshots, raw broker responses, plans, approvals.
+# Contains account data; never commit.
+state/*
+!state/.gitkeep
+
+# Kill switch is a local, per-machine control.
+/KILL
+
+# Market data (provider terms); the manifest in backtest/data/manifest.json is committed.
+backtest/data/raw/
+backtest/data/cache/
+
+# Local overrides
+.claude/settings.local.json
+.env
