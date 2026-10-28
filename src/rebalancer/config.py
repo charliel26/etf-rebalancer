@@ -328,13 +328,16 @@ def parse_limits(raw: Any) -> Limits:
     account = doc["agentic_account_id"]
     if account is not None and (not isinstance(account, str) or not account.strip()):
         raise ConfigError("agentic_account_id: expected null or a non-empty string")
+    tolerance = _decimal(doc["match_tolerance_usd"], "match_tolerance_usd")
+    if tolerance > 1:
+        raise ConfigError("match_tolerance_usd: an order must match its plan line within $1 at most")
 
     return Limits(
         min_order=min_order,
         max_order=max_order,
         max_daily_notional=daily,
         max_st_gain=_decimal(doc["max_st_gain_per_rebalance_usd"], "max_st_gain_per_rebalance_usd"),
-        match_tolerance=_decimal(doc["match_tolerance_usd"], "match_tolerance_usd"),
+        match_tolerance=tolerance,
         quote_max_age=timedelta(minutes=_int(doc["quote_max_age_minutes"], "quote_max_age_minutes", minimum=1)),
         plan_max_age=timedelta(minutes=_int(doc["plan_max_age_minutes"], "plan_max_age_minutes", minimum=1)),
         review_max_age=timedelta(minutes=_int(doc["review_max_age_minutes"], "review_max_age_minutes", minimum=1)),

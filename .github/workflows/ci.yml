@@ -1,0 +1,27 @@
+name: ci
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          python-version: "3.13"
+      - name: Install
+        run: uv sync --locked --extra dev --extra backtest
+      - name: Lint
+        run: uv run ruff check . && uv run ruff format --check .
+      - name: Tests
+        run: uv run pytest -q --cov=src/rebalancer --cov=backtest --cov-branch --cov-report=term-missing
+      - name: 100% branch coverage on the pure modules
+        run: >
+          uv run coverage report --fail-under=100
+          --include="*/rebalancer/engine.py,*/rebalancer/lots.py,*/rebalancer/plan.py"

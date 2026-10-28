@@ -322,7 +322,7 @@ class TestCheckOrderDirect:
         doc = json.loads((project / run.plan_path).read_text())
         doc.update(plan_changes)
         doc = finalize(doc)
-        live_run = RunRow(doc["run_id"], TODAY, "live", doc["plan_sha256"], run.plan_path, False, doc["action"])
+        live_run = RunRow(doc["run_id"], TODAY, "live", doc["plan_sha256"], run.plan_path, False, doc["action"], NOW)
         config = load_config(project / "config")
         return OrderContext(
             now=NOW,

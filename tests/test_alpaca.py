@@ -1,8 +1,10 @@
 import json
 from datetime import date
+from urllib.parse import parse_qs, urlsplit
 
 import pytest
 
+from rebalancer.broker import alpaca_paper
 from rebalancer.broker.alpaca_paper import PAPER_URL, AlpacaPaperBroker
 from rebalancer.broker.base import BrokerError
 from rebalancer.lots import Fill, lots_from_fills
@@ -20,6 +22,7 @@ CLOSED = [
         "filled_qty": "2",
         "filled_avg_price": "290",
         "created_at": "2026-10-01T14:59:00Z",
+        "submitted_at": "2026-10-01T14:59:00Z",
         "notional": "580",
     },
     {
@@ -31,6 +34,7 @@ CLOSED = [
         "filled_qty": "0.5",
         "filled_avg_price": "300",
         "created_at": "2026-10-20T14:59:00Z",
+        "submitted_at": "2026-10-20T14:59:00Z",
         "notional": "150",
     },
     {
@@ -42,6 +46,7 @@ CLOSED = [
         "filled_qty": "0",
         "filled_avg_price": None,
         "created_at": "2026-10-21T14:59:00Z",
+        "submitted_at": "2026-10-21T14:59:00Z",
         "notional": "50",
     },
 ]
@@ -110,6 +115,26 @@ def test_submit_sends_a_safe_market_order():
         "extended_hours": False,
         "client_order_id": "run-L1",
     }
+
+
+class PagedTransport(FakeTransport):
+    """Serves closed orders strictly after `after`, at most two per page."""
+
+    def __call__(self, method, url, headers, body):
+        if "/v2/orders?status=closed" not in url:
+            return super().__call__(method, url, headers, body)
+        self.calls.append((method, url, None))
+        after = parse_qs(urlsplit(url).query)["after"][0]
+        return 200, [o for o in CLOSED if o["submitted_at"] > after][:2]
+
+
+def test_closed_orders_are_read_page_by_page(monkeypatch):
+    monkeypatch.setattr(alpaca_paper, "PAGE", 2)
+    transport = PagedTransport()
+    snap = broker(transport).snapshot(NOW)
+    assert [t.order_id for t in snap.trades] == ["b1", "s1"]
+    closed_calls = [url for _, url, _ in transport.calls if "status=closed" in url]
+    assert len(closed_calls) == 2 and "2026-10-20T14%3A59%3A00Z" in closed_calls[1]
 
 
 def test_orders_and_http_errors():

@@ -40,6 +40,12 @@ def render_report(plan: Mapping[str, Any], risk: RiskSummary | None) -> str:
         f"{_usd(p['unmanaged_value'])} | {_usd(p['cash'])} | {_usd(p['reserve'])} | {_usd(p['deployable_cash'])} |",
         "",
     ]
+    if p.get("equity_gap") is not None:
+        lines += [
+            f"Broker-reported equity {_usd(p['reported_equity'])}; positions × quotes + cash differ from it by "
+            f"{_usd(p['equity_gap'])}.",
+            "",
+        ]
     if p["funds"]:
         lines += ["| Fund | Value | Weight | Target | Band | After buys | Breach |", "|---|---|---|---|---|---|---|"]
         for symbol, f in p["funds"].items():
@@ -56,8 +62,8 @@ def render_report(plan: Mapping[str, Any], risk: RiskSummary | None) -> str:
     if p["annual_reset_due"]:
         lines += [
             "",
-            "**Annual reset is due.** Run `rebalancer plan --annual-reset` to see the proposal; "
-            "it needs your approval in a terminal.",
+            "**Annual reset is due.** In a terminal, run `rebalancer plan --annual-reset` to see the proposal "
+            "(it needs your approval), or `rebalancer dismiss-reset <year>` to skip it this year. See RUNBOOK.md.",
         ]
 
     lines += ["", "## Orders", ""]

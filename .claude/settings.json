@@ -1,7 +1,9 @@
 {
   "$schema": "https://json.schemastore.org/claude-code-settings.json",
+  "disableAllHooks": false,
   "permissions": {
     "disableBypassPermissionsMode": "disable",
+    "disableAutoMode": "disable",
     "allow": [
       "mcp__robinhood-trading__get_portfolio",
       "mcp__robinhood-trading__get_equity_positions",
@@ -14,6 +16,7 @@
       "Bash(uv run rebalancer status)",
       "Bash(uv run rebalancer snapshot *)",
       "Bash(uv run rebalancer plan *)",
+      "Bash(uv run rebalancer pending)",
       "Bash(uv run rebalancer reconcile *)",
       "Bash(uv run rebalancer report *)"
     ],
@@ -43,12 +46,23 @@
       "Bash(*rebalancer arm*)",
       "Bash(*rebalancer rearm*)",
       "Bash(*rebalancer dismiss-reset*)",
+      "Bash(*--annual-reset*)",
       "Edit(/config/**)",
       "Write(/config/**)",
       "Edit(/state/**)",
       "Write(/state/**)",
-      "Edit(/.claude/settings.json)",
-      "Write(/.claude/settings.json)"
+      "Edit(/hooks/**)",
+      "Write(/hooks/**)",
+      "Edit(/src/**)",
+      "Write(/src/**)",
+      "Edit(/.claude/**)",
+      "Write(/.claude/**)",
+      "Edit(/.venv/**)",
+      "Write(/.venv/**)",
+      "Edit(/pyproject.toml)",
+      "Write(/pyproject.toml)",
+      "Edit(/uv.lock)",
+      "Write(/uv.lock)"
     ]
   },
   "hooks": {
@@ -59,7 +73,9 @@
           {
             "type": "command",
             "command": "${CLAUDE_PROJECT_DIR}/.venv/bin/python",
-            "args": ["${CLAUDE_PROJECT_DIR}/hooks/guard_order.py"],
+            "args": [
+              "${CLAUDE_PROJECT_DIR}/hooks/guard_order.py"
+            ],
             "timeout": 60,
             "onFailure": "block"
           }
@@ -73,7 +89,9 @@
           {
             "type": "command",
             "command": "${CLAUDE_PROJECT_DIR}/.venv/bin/python",
-            "args": ["${CLAUDE_PROJECT_DIR}/hooks/capture_mcp.py"],
+            "args": [
+              "${CLAUDE_PROJECT_DIR}/hooks/capture_mcp.py"
+            ],
             "timeout": 60
           }
         ]
@@ -86,7 +104,9 @@
           {
             "type": "command",
             "command": "${CLAUDE_PROJECT_DIR}/.venv/bin/python",
-            "args": ["${CLAUDE_PROJECT_DIR}/hooks/capture_mcp.py"],
+            "args": [
+              "${CLAUDE_PROJECT_DIR}/hooks/capture_mcp.py"
+            ],
             "timeout": 60
           }
         ]

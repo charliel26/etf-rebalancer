@@ -17,9 +17,12 @@ from datetime import date, datetime
 from decimal import Decimal
 from pathlib import Path
 from typing import Any
+from zoneinfo import ZoneInfo
 
 from .models import Side, TradeRecord
 from .money import CENT, ZERO, to_decimal
+
+NEW_YORK = ZoneInfo("America/New_York")
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS runs (
@@ -45,6 +48,7 @@ CREATE TABLE IF NOT EXISTS plan_lines (
     tool_use_id TEXT,
     broker_order_id TEXT,
     claimed_at TEXT,
+    claimed_notional_usd TEXT,
     updated_at TEXT,
     filled_notional_usd TEXT,
     PRIMARY KEY (run_id, line_id)
@@ -54,6 +58,7 @@ CREATE TABLE IF NOT EXISTS approvals (
     plan_sha256 TEXT NOT NULL,
     approved_on TEXT NOT NULL,
     approved_at TEXT NOT NULL,
+    reference TEXT,
     PRIMARY KEY (run_id, plan_sha256)
 );
 CREATE TABLE IF NOT EXISTS trades (
@@ -82,7 +87,9 @@ CREATE TABLE IF NOT EXISTS events (
 """
 
 # Statuses whose notional counts against the daily limit. Uncertain outcomes
-# (CLAIMED, SUBMIT_FAILED) count, which is the conservative side.
+# (CLAIMED, SUBMIT_FAILED) count, which is the conservative side. A claimed
+# line counts the amount actually sent (it may differ from the plan line by the
+# match tolerance), so the daily limit holds for the orders themselves.
 COUNTED = ("CLAIMED", "SUBMITTED", "SUBMIT_FAILED", "FILLED", "PARTIAL", "CANCELLED")
 REARMABLE = ("NOT_PLACED", "SUBMIT_FAILED", "REJECTED", "CANCELLED")
 
@@ -100,6 +107,7 @@ class RunRow:
     plan_path: str
     requires_approval: bool
     action: str
+    created_at: datetime
 
 
 @dataclass(frozen=True)
@@ -234,6 +242,7 @@ class Ledger:
             plan_path=row["plan_path"],
             requires_approval=bool(row["requires_approval"]),
             action=row["action"],
+            created_at=datetime.fromisoformat(row["created_at"]),
         )
 
     def run(self, run_id: str) -> RunRow | None:
@@ -271,11 +280,12 @@ class Ledger:
     def _notional_used(self, db: sqlite3.Connection, day: date) -> Decimal:
         placeholders = ",".join("?" for _ in COUNTED)
         rows = db.execute(
-            "SELECT l.notional_usd FROM plan_lines l JOIN runs r ON r.run_id = l.run_id"
+            "SELECT COALESCE(l.claimed_notional_usd, l.notional_usd) AS amount"
+            " FROM plan_lines l JOIN runs r ON r.run_id = l.run_id"
             f" WHERE r.run_date = ? AND r.mode = 'live' AND l.status IN ({placeholders})",
             (day.isoformat(), *COUNTED),
         )
-        return sum((Decimal(r["notional_usd"]) for r in rows), ZERO)
+        return sum((Decimal(r["amount"]) for r in rows), ZERO)
 
     def notional_used(self, day: date) -> Decimal:
         return self._notional_used(self._db, day)
@@ -314,9 +324,9 @@ class Ledger:
                 return ClaimResult(False, f"daily notional limit: {used} used + {amount} > {daily_cap}")
             line_id = candidates[0]["line_id"]
             db.execute(
-                "UPDATE plan_lines SET status = 'CLAIMED', claimed_at = ?, updated_at = ?, tool_use_id = ?"
-                " WHERE run_id = ? AND line_id = ? AND status = 'PENDING'",
-                (now.isoformat(), now.isoformat(), tool_use_id, run_id, line_id),
+                "UPDATE plan_lines SET status = 'CLAIMED', claimed_at = ?, claimed_notional_usd = ?, updated_at = ?,"
+                " tool_use_id = ? WHERE run_id = ? AND line_id = ? AND status = 'PENDING'",
+                (now.isoformat(), str(amount), now.isoformat(), tool_use_id, run_id, line_id),
             )
             self.log("line_claimed", {"line_id": line_id, "amount": str(amount)}, now, run_id)
         return ClaimResult(True, "claimed", line_id)
@@ -356,7 +366,7 @@ class Ledger:
             raise LedgerError(f"line {line_id} is {line.status}; only {REARMABLE} can be re-armed")
         self._db.execute(
             "UPDATE plan_lines SET status = 'PENDING', tool_use_id = NULL, broker_order_id = NULL,"
-            " claimed_at = NULL, updated_at = ? WHERE run_id = ? AND line_id = ?",
+            " claimed_at = NULL, claimed_notional_usd = NULL, updated_at = ? WHERE run_id = ? AND line_id = ?",
             (now.isoformat(), run_id, line_id),
         )
         self.log("line_rearmed", {"line_id": line_id, "previous": line.status}, now, run_id)
@@ -372,16 +382,20 @@ class Ledger:
         tolerance: Decimal,
         not_placed_after_minutes: int = 5,
     ) -> dict[str, str]:
-        """Update line statuses from broker orders. Returns {line_id: new status}."""
+        """Update line statuses from broker orders. Returns {line_id: new status}.
+
+        A line marked NOT_PLACED is still matched against new broker orders, so
+        an order that shows up late is linked instead of being left uncounted.
+        """
         orders = list(orders)
         by_id = {o.order_id: o for o in orders}
         linked = {line.broker_order_id for line in self.lines(run_id) if line.broker_order_id}
         changes: dict[str, str] = {}
         for line in self.lines(run_id):
-            if line.status in ("PENDING", "FILLED", "REJECTED", "NOT_PLACED"):
+            if line.status in ("PENDING", "FILLED", "REJECTED"):
                 continue
             order = by_id.get(line.broker_order_id) if line.broker_order_id else None
-            if order is None and line.status in ("CLAIMED", "SUBMIT_FAILED", "SUBMITTED"):
+            if order is None and line.status in ("CLAIMED", "SUBMIT_FAILED", "SUBMITTED", "NOT_PLACED"):
                 order = self._find_unlinked(line, orders, linked, tolerance)
                 if order is not None:
                     linked.add(order.order_id)
@@ -400,7 +414,7 @@ class Ledger:
                     TradeRecord(
                         symbol=order.symbol,
                         side=Side(order.side),
-                        trade_date=(order.filled_at or order.created_at).date(),
+                        trade_date=(order.filled_at or order.created_at).astimezone(NEW_YORK).date(),
                         notional=order.filled_notional,
                         had_loss=line.est_had_loss if order.side == "sell" else None,
                         order_id=order.order_id,
@@ -437,12 +451,22 @@ class Ledger:
 
     # ------------------------------------------------------------ approvals
 
-    def record_approval(self, run_id: str, plan_sha256: str, approved_on: date, now: datetime) -> None:
+    def record_approval(
+        self, run_id: str, plan_sha256: str, approved_on: date, now: datetime, reference: str | None = None
+    ) -> None:
+        """Approve a plan hash for one day; `reference` is e.g. a compliance pre-clearance id."""
         self._db.execute(
-            "INSERT OR REPLACE INTO approvals (run_id, plan_sha256, approved_on, approved_at) VALUES (?, ?, ?, ?)",
-            (run_id, plan_sha256, approved_on.isoformat(), now.isoformat()),
+            "INSERT OR REPLACE INTO approvals (run_id, plan_sha256, approved_on, approved_at, reference)"
+            " VALUES (?, ?, ?, ?, ?)",
+            (run_id, plan_sha256, approved_on.isoformat(), now.isoformat(), reference),
         )
-        self.log("approved", {"plan_sha256": plan_sha256}, now, run_id)
+        self.log("approved", {"plan_sha256": plan_sha256, "reference": reference}, now, run_id)
+
+    def approval_reference(self, run_id: str, plan_sha256: str) -> str | None:
+        row = self._db.execute(
+            "SELECT reference FROM approvals WHERE run_id = ? AND plan_sha256 = ?", (run_id, plan_sha256)
+        ).fetchone()
+        return None if row is None else row["reference"]
 
     def has_approval(self, run_id: str, plan_sha256: str, on: date) -> bool:
         row = self._db.execute(
@@ -454,6 +478,8 @@ class Ledger:
     # ------------------------------------------------------------ trades and resets
 
     def record_trade(self, trade: TradeRecord, source: str) -> bool:
+        """Store a trade; True if it is new. For a broker order already stored
+        (a partial fill that later completed) the amount and date are updated."""
         cursor = self._db.execute(
             "INSERT OR IGNORE INTO trades (broker_order_id, symbol, side, trade_date, notional_usd, had_loss, source)"
             " VALUES (?, ?, ?, ?, ?, ?, ?)",
@@ -467,7 +493,14 @@ class Ledger:
                 source,
             ),
         )
-        return cursor.rowcount == 1
+        if cursor.rowcount == 1:
+            return True
+        # Only a known broker order id makes the insert a no-op (NULL ids never collide).
+        self._db.execute(
+            "UPDATE trades SET notional_usd = ?, trade_date = ? WHERE broker_order_id = ?",
+            (str(trade.notional), trade.trade_date.isoformat(), trade.order_id),
+        )
+        return False
 
     def trades_since(self, day: date) -> list[TradeRecord]:
         rows = self._db.execute(

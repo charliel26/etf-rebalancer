@@ -26,6 +26,11 @@ from .money import CENT, ZERO, allocate_cents, floor_cents
 SCHEMA_VERSION = 1
 NEW_YORK = ZoneInfo("America/New_York")
 LOT_TOLERANCE = Decimal("0.000001")  # shares
+# Positions x quotes + cash must agree with the broker's reported equity within
+# the larger of these, or the snapshot is incomplete (e.g. a missing position,
+# which would otherwise make that fund look empty and be overbought).
+EQUITY_TOLERANCE_SHARE = Decimal("0.02")
+EQUITY_TOLERANCE_USD = Decimal("25")
 SELL_REASONS = {
     "full": "band_rebalance",
     "band_edge": "band_edge_rebalance",
@@ -312,6 +317,7 @@ class PlanContext:
     today: date
     now: datetime  # timezone-aware
     live_requested: bool
+    trading_window_open: bool = True  # inside today's execution window (CLI computes it)
     kill_switch: bool = False
     live_run_exists_today: bool = False
     notional_used_today: Decimal = ZERO
@@ -375,6 +381,8 @@ def build_plan(snapshot: Snapshot, config: Config, ctx: PlanContext) -> Plan:
 
     if ctx.kill_switch:
         blockers.append("KILL_SWITCH")
+    if ctx.live_requested and not ctx.trading_window_open:
+        blockers.append("OUTSIDE_TRADING_WINDOW")
     if ctx.live_requested and ctx.live_run_exists_today:
         blockers.append("LIVE_RUN_EXISTS_TODAY")
     if ctx.live_requested and strategy.lot_method != "fifo":
@@ -410,6 +418,15 @@ def build_plan(snapshot: Snapshot, config: Config, ctx: PlanContext) -> Plan:
     unmanaged = sorted(s for s in other_values if s not in strategy.satellite_symbols)
     flags.extend(f"UNMANAGED_POSITION:{s}" for s in unmanaged)
     unmanaged_value = sum((other_values[s] for s in unmanaged), ZERO)
+
+    equity_gap: Decimal | None = None
+    if snapshot.reported_equity is not None and len(prices) == len(symbols):
+        computed = sum((snapshot.shares(s) * prices[s] for s in symbols), ZERO)
+        computed += sum(other_values.values(), ZERO) + snapshot.cash
+        equity_gap = computed - snapshot.reported_equity
+        allowed = max(EQUITY_TOLERANCE_USD, EQUITY_TOLERANCE_SHARE * abs(snapshot.reported_equity))
+        if abs(equity_gap) > allowed:
+            blockers.append("EQUITY_MISMATCH")
 
     cash = snapshot.cash if snapshot.buying_power is None else min(snapshot.cash, snapshot.buying_power)
     cash = max(cash, ZERO)
@@ -527,6 +544,8 @@ def build_plan(snapshot: Snapshot, config: Config, ctx: PlanContext) -> Plan:
             "unmanaged_value": unmanaged_value,
             "cash": cash,
             "total_value": total_value,
+            "reported_equity": snapshot.reported_equity,
+            "equity_gap": equity_gap,
             "satellite_share": satellite_value / total_value if total_value > 0 else None,
             "reserve": reserve,
             "deployable_cash": deployable,

@@ -352,6 +352,7 @@ class TestBuildPlan:
         ("snapshot_kwargs", "ctx_kwargs", "blocker"),
         [
             ({}, {"kill_switch": True}, "KILL_SWITCH"),
+            ({}, {"trading_window_open": False}, "OUTSIDE_TRADING_WINDOW"),
             ({}, {"live_run_exists_today": True}, "LIVE_RUN_EXISTS_TODAY"),
             ({"open_orders": ("o1",)}, {}, "OPEN_ORDERS"),
             ({"as_of": NOW - timedelta(days=1)}, {}, "SNAPSHOT_NOT_FROM_TODAY"),
@@ -393,6 +394,21 @@ class TestBuildPlan:
         assert p.portfolio["total_value"] == 10600.0
         assert p.portfolio["satellite_share"] == pytest.approx(500 / 10600)
         assert "UNMANAGED_POSITION:XYZ" in p.flags and "UNPRICED:ABC" in p.flags
+
+    def test_equity_must_match_positions_and_cash(self, config):
+        # 10,000 USD of funds plus 1,000 cash: the broker should report about 11,000.
+        live = ctx(live_requested=True)
+        close = build_plan(make_snapshot(on_target_shares(), cash=1000, equity="11020"), config, live)
+        assert close.mode == "live" and close.portfolio["equity_gap"] == pytest.approx(-20)
+        # A position missing from the positions response shows up as a large gap.
+        missing = build_plan(make_snapshot(on_target_shares(), cash=1000, equity="16000"), config, live)
+        assert "EQUITY_MISMATCH" in missing.blockers and missing.mode == "dry_run"
+        assert missing.portfolio["reported_equity"] == 16000.0
+        # The 25 USD floor applies to small accounts (2% of 400 is only 8 USD).
+        small = build_plan(make_snapshot({}, cash=400, equity="420"), config, ctx())
+        assert "EQUITY_MISMATCH" not in small.blockers
+        unknown = build_plan(make_snapshot(on_target_shares(), cash=1000), config, ctx())
+        assert unknown.portfolio["equity_gap"] is None
 
     def test_buying_power_caps_cash(self, config):
         p = build_plan(make_snapshot(on_target_shares(), cash=1000, buying_power=400), config, ctx())

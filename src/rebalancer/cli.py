@@ -29,6 +29,7 @@ from .guard import OrderRequest, guard_and_claim
 from .integrity import compute_manifest, verify_armed, write_armed
 from .ledger import Ledger, LedgerError
 from .models import Snapshot, TradeRecord
+from .nyse import SessionBounds, execution_window, session_bounds
 from .plan import PlanContext, build_plan, plan_to_dict, verify_plan_dict
 from .report import render_report
 from .risk import assess
@@ -48,6 +49,7 @@ class Runtime:
     input_fn: Callable[[str], str]
     is_tty: bool
     out: Callable[[str], None]
+    bounds: SessionBounds = session_bounds
 
     @property
     def state(self) -> Path:
@@ -93,9 +95,17 @@ def merge_trades(broker: Sequence[TradeRecord], ledger: Sequence[TradeRecord]) -
     return tuple(merged)
 
 
+def _window_open(rt: Runtime, config: Config) -> bool:
+    window = execution_window(rt.today, config.limits, rt.bounds)
+    return window is not None and window[0] <= rt.now <= window[1]
+
+
 def make_plan(
     rt: Runtime, config: Config, snapshot: Snapshot, snapshot_sha: str, state_dir: Path, *, annual_reset: bool
 ) -> tuple[dict, Path]:
+    # A live plan is only made when its orders could be placed now, so a plan made
+    # before the window opens can't use up the day's one live run.
+    window_open = _window_open(rt, config) if rt.live_requested else True
     with Ledger(state_dir / "ledger.sqlite3") as ledger:
         trades = merge_trades(snapshot.trades, ledger.trades_since(rt.today - timedelta(days=45)))
         snapshot = replace(snapshot, trades=trades)
@@ -104,6 +114,7 @@ def make_plan(
             today=rt.today,
             now=rt.now,
             live_requested=rt.live_requested,
+            trading_window_open=window_open,
             kill_switch=(rt.project / "KILL").exists(),
             live_run_exists_today=existing is not None,
             notional_used_today=ledger.notional_used(rt.today),
@@ -227,6 +238,41 @@ def cmd_status(rt: Runtime, args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_pending(rt: Runtime, args: argparse.Namespace) -> int:
+    """Today's live run's PENDING lines as JSON: exactly what the agent may place.
+
+    Prints [] when there is nothing to place, with a `#` line saying why when a
+    live run exists: a dry-run session, the kill switch, an expired plan, or a
+    missing approval. The guard checks all of this again for every order.
+    """
+    limits = load_config(rt.project / "config").limits
+    with Ledger(rt.state / "ledger.sqlite3") as ledger:
+        live = ledger.live_run_for(rt.today)
+        if live is None:
+            rt.out("[]")
+            return 0
+        reason = None
+        if not rt.live_requested:
+            reason = "dry-run session: orders need TRADING_ENABLED=true and DRY_RUN=false"
+        elif (rt.project / "KILL").exists():
+            reason = "the kill switch is on (KILL file)"
+        elif rt.now - live.created_at > limits.plan_max_age:
+            reason = f"{live.run_id} is older than {limits.plan_max_age} and can't be executed any more"
+        elif live.requires_approval and not ledger.has_approval(live.run_id, live.plan_sha256, rt.today):
+            reason = f"{live.run_id} needs approval first: `rebalancer approve {live.run_id}` in a terminal"
+        if reason is not None:
+            rt.out("[]")
+            rt.out(f"# {reason}")
+            return 0
+        lines = [
+            {"line_id": x.line_id, "symbol": x.symbol, "side": x.side, "notional_usd": f"{x.notional_usd:.2f}"}
+            for x in ledger.lines(live.run_id)
+            if x.status == "PENDING"
+        ]
+    rt.out(json.dumps(lines, indent=1))
+    return 0
+
+
 def cmd_reconcile(rt: Runtime, args: argparse.Namespace) -> int:
     config = load_config(rt.project / "config")
     orders = broker_orders(Path(args.raw_dir) if args.raw_dir else raw_dir_for(rt.state, rt.now))
@@ -247,6 +293,10 @@ def cmd_reconcile(rt: Runtime, args: argparse.Namespace) -> int:
 
 def cmd_approve(rt: Runtime, args: argparse.Namespace) -> int:
     _require_tty(rt, "rebalancer approve")
+    config = load_config(rt.project / "config")
+    reference = (args.reference or "").strip() or None
+    if config.limits.approval_for_all_trades and reference is None:
+        raise CliError("compliance mode: give the pre-clearance reference with --reference")
     with Ledger(rt.state / "ledger.sqlite3") as ledger:
         run = ledger.run(args.run_id)
         if run is None or run.mode != "live" or run.run_date != rt.today:
@@ -263,8 +313,8 @@ def cmd_approve(rt: Runtime, args: argparse.Namespace) -> int:
         if typed != run.plan_sha256[:8]:
             rt.out("not approved")
             return 1
-        ledger.record_approval(run.run_id, run.plan_sha256, rt.today, rt.now)
-    rt.out("approved for today")
+        ledger.record_approval(run.run_id, run.plan_sha256, rt.today, rt.now, reference)
+    rt.out("approved for today" + (f" (reference {reference})" if reference else ""))
     return 0
 
 
@@ -366,10 +416,12 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--annual-reset", action="store_true")
     p = sub.add_parser("report", help="print a report (latest by default)")
     p.add_argument("run_id", nargs="?")
+    sub.add_parser("pending", help="today's live lines still to place, as JSON (what the agent may place)")
     p = sub.add_parser("reconcile", help="update today's lines from captured get_equity_orders")
     p.add_argument("--raw-dir")
     p = sub.add_parser("approve", help="approve today's live plan (terminal only)")
     p.add_argument("run_id")
+    p.add_argument("--reference", help="pre-clearance reference; required when compliance needs approval")
     sub.add_parser("arm", help="trust the current code/config hashes for trading (terminal only)")
     p = sub.add_parser("rearm", help="make a failed line pending again (terminal only)")
     p.add_argument("run_id")
@@ -385,6 +437,7 @@ COMMANDS = {
     "snapshot": cmd_snapshot,
     "plan": cmd_plan,
     "report": cmd_report,
+    "pending": cmd_pending,
     "reconcile": cmd_reconcile,
     "approve": cmd_approve,
     "arm": cmd_arm,

@@ -17,6 +17,7 @@ from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from typing import Any
 from urllib.parse import urlencode
+from zoneinfo import ZoneInfo
 
 from ..ledger import BrokerOrder
 from ..lots import Fill, lots_from_fills
@@ -26,6 +27,8 @@ from .base import Broker, BrokerError
 
 PAPER_URL = "https://paper-api.alpaca.markets"
 DATA_URL = "https://data.alpaca.markets"
+NEW_YORK = ZoneInfo("America/New_York")
+PAGE = 500  # Alpaca's maximum page size for /v2/orders
 
 Transport = Callable[[str, str, Mapping[str, str], bytes | None], tuple[int, Any]]
 
@@ -72,8 +75,16 @@ class AlpacaPaperBroker(Broker):
         return data
 
     def _closed_orders(self, since: datetime) -> list[dict[str, Any]]:
-        query = urlencode({"status": "closed", "after": since.isoformat(), "limit": 500, "direction": "asc"})
-        return self._call("GET", f"{PAPER_URL}/v2/orders?{query}")
+        """Closed orders submitted after `since`, oldest first, all pages."""
+        out: list[dict[str, Any]] = []
+        after = since.isoformat()
+        while True:
+            query = urlencode({"status": "closed", "after": after, "limit": PAGE, "direction": "asc"})
+            page = self._call("GET", f"{PAPER_URL}/v2/orders?{query}")
+            out += page
+            if len(page) < PAGE:
+                return out
+            after = page[-1]["submitted_at"]
 
     def snapshot(self, now: datetime) -> Snapshot:
         account = self._call("GET", f"{PAPER_URL}/v2/account")
@@ -91,7 +102,7 @@ class AlpacaPaperBroker(Broker):
                 o["id"],
                 o["symbol"],
                 Side(o["side"]),
-                _ts(o["filled_at"]).date(),
+                _ts(o["filled_at"]).astimezone(NEW_YORK).date(),
                 to_decimal(o["filled_qty"]),
                 to_decimal(o["filled_avg_price"]),
             )

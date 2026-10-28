@@ -10,12 +10,14 @@ captures before trading live (RUNBOOK.md, "First dry run").
 
 from __future__ import annotations
 
+import hashlib
 import json
 from collections.abc import Iterable, Mapping
 from datetime import datetime
 from decimal import Decimal
 from pathlib import Path
 from typing import Any
+from zoneinfo import ZoneInfo
 
 from ..ledger import BrokerOrder
 from ..models import Holding, Quote, Side, Snapshot, TaxLot, Tradability, TradeRecord
@@ -35,6 +37,7 @@ LIST_KEYS = (
     "instruments",
     "tradability",
 )
+NEW_YORK = ZoneInfo("America/New_York")
 FILLED_STATES = {"filled", "partially_filled"}
 OPEN_STATES = {"queued", "unconfirmed", "confirmed", "pending", "new", "accepted", "partially_filled"}
 
@@ -67,13 +70,15 @@ def _records(payload: Any, where: str) -> list[Mapping[str, Any]]:
 
 
 def load_captures(raw_dir: Path) -> dict[str, list[dict[str, Any]]]:
-    """Successful captures by tool, oldest first."""
+    """Successful captures by tool, oldest first, each with its file path and SHA-256."""
     by_tool: dict[str, list[dict[str, Any]]] = {}
     for path in sorted(raw_dir.glob("*.json")):
-        record = json.loads(path.read_text())
+        data = path.read_bytes()
+        record = json.loads(data)
         if record.get("event") != "PostToolUse":
             continue
         record["_path"] = str(path)
+        record["_sha256"] = hashlib.sha256(data).hexdigest()
         by_tool.setdefault(record["tool"], []).append(record)
     return by_tool
 
@@ -165,11 +170,14 @@ def parse_orders(payload: Any) -> list[BrokerOrder]:
             filled = Decimal(0) if qty is None or price is None else _dec(qty, where) * _dec(price, where)
         notional = _first(item, ("dollar_amount", "notional", "amount"))
         filled_at = _first(item, ("last_transaction_at", "filled_at"))
+        side = str(_need(item, ("side",), where)).lower()
+        if side not in ("buy", "sell"):
+            raise SnapshotError(f"{where}: side must be buy or sell, got {side!r}")
         out.append(
             BrokerOrder(
                 order_id=str(_need(item, ("id", "order_id"), where)),
                 symbol=_symbol(_need(item, ("symbol", "ticker"), where), where),
-                side=str(_need(item, ("side",), where)).lower(),
+                side=side,
                 state=str(_need(item, ("state", "status"), where)).lower(),
                 notional=None if notional is None else _dec(notional, f"{where}.notional"),
                 filled_notional=_dec(filled, f"{where}.filled"),
@@ -271,7 +279,12 @@ def build_snapshot(raw_dir: Path, now: datetime) -> tuple[Snapshot, list[dict[st
         open_order_ids=tuple(o.order_id for o in orders if o.state in OPEN_STATES),
         trades=tuple(
             TradeRecord(
-                o.symbol, Side(o.side), (o.filled_at or o.created_at).date(), o.filled_notional, None, o.order_id
+                o.symbol,
+                Side(o.side),
+                (o.filled_at or o.created_at).astimezone(NEW_YORK).date(),
+                o.filled_notional,
+                None,
+                o.order_id,
             )
             for o in orders
             if o.state in FILLED_STATES or (o.filled_notional > 0)
@@ -279,7 +292,11 @@ def build_snapshot(raw_dir: Path, now: datetime) -> tuple[Snapshot, list[dict[st
         tradability=tuple(tradability.values()),
         closes=closes,
     )
-    sources = [{"path": r["_path"], "tool": r["tool"]} for records in captures.values() for r in records]
+    sources = [
+        {"path": r["_path"], "tool": r["tool"], "sha256": r["_sha256"]}
+        for records in captures.values()
+        for r in records
+    ]
     return snapshot, sources
 
 

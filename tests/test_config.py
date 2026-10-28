@@ -143,6 +143,8 @@ def test_empty_satellites_and_groups_as_null():
         {"agentic_account_id": ""},
         {"agentic_account_id": 123},
         {"quote_max_age_minutes": 0},
+        {"match_tolerance_usd": "1.01"},
+        {"match_tolerance_usd": "-0.01"},
         {"compliance": {"min_holding_days": -1, "approval_for_all_trades": False}},
     ],
 )

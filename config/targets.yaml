@@ -32,6 +32,11 @@ cash:
 # Phased initial deployment of a lump sum (STRATEGY.md §8). Any amount works:
 # set total_usd to what you want phased in, and start_date to the first tranche
 # date. Leave either null to deploy cash as soon as it is available.
+# Each run holds back the tranches not released yet,
+#     total_usd * (tranches still to come) / tranches,
+# on top of cash_reserve_usd, and treats the rest of the cash as deployable.
+# To invest only part of the account's cash, put the part that should stay
+# uninvested in cash_reserve_usd.
 initial_deployment:
   start_date: null    # e.g. 2026-11-02
   total_usd: null     # e.g. "8100"

@@ -114,13 +114,14 @@ class TestReport:
         shares = {"VTI": D(7000) / 300, "VXUS": D(1000) / 60, "QQQM": D(5), "AVUV": D(10)}
         doc = plan_to_dict(
             build_plan(
-                make_snapshot(shares, cash=0, open_orders=("x",)),
+                make_snapshot(shares, cash=0, open_orders=("x",), equity="99999"),
                 config,
                 PlanContext(today=TODAY, now=NOW, live_requested=True),
             )
         )
         text = render_report(doc, None)
-        assert "## Blockers" in text and "`OPEN_ORDERS`" in text
+        assert "## Blockers" in text and "`OPEN_ORDERS`" in text and "`EQUITY_MISMATCH`" in text
+        assert "Broker-reported equity $99,999.00" in text
         assert "redeployed at the next run" in text
         assert "Phased deployment" in text and "Annual reset is due" in text
         assert "No risk data." in text

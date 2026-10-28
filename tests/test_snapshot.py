@@ -1,6 +1,8 @@
+import hashlib
 import json
 from datetime import UTC, date, datetime
 from decimal import Decimal
+from pathlib import Path
 
 import pytest
 
@@ -41,11 +43,13 @@ def capture_tool(state_dir, tool, response, now=NOW, event="PostToolUse", tool_i
     )
 
 
-def write_raw_session(state_dir, *, orders=None, cash="1000.00"):
+def write_raw_session(state_dir, *, orders=None, cash="1000.00", equity=None):
+    if equity is None:  # positions at the quoted prices plus cash, as a broker reports it
+        equity = str(sum(D(SHARES[s]) * D(PRICES[s]) for s in SHARES) + D(cash))
     capture_tool(
         state_dir,
         "get_portfolio",
-        mcp({"account_number": "AGENT1", "cash": cash, "buying_power": cash, "equity": "10930.00"}),
+        mcp({"account_number": "AGENT1", "cash": cash, "buying_power": cash, "equity": equity}),
     )
     capture_tool(
         state_dir, "get_equity_positions", mcp({"results": [{"symbol": s, "quantity": q} for s, q in SHARES.items()]})
@@ -185,6 +189,8 @@ class TestRobinhoodRaw:
         assert snap.tradability_for("AVUV").fractional
         assert snap.closes["VTI"][-1] == (date(2026, 10, 30), D("300.00"))
         assert len(sources) == 7
+        first = sources[0]
+        assert first["sha256"] == hashlib.sha256(Path(first["path"]).read_bytes()).hexdigest()
 
     def test_orders_become_open_ids_and_trades(self, tmp_path):
         orders = [
@@ -200,14 +206,23 @@ class TestRobinhoodRaw:
                 "last_transaction_at": "2026-10-20T15:00:05Z",
             },
             {"id": "o2", "symbol": "VXUS", "side": "sell", "state": "queued", "created_at": "2026-11-02T14:00:00Z"},
+            {
+                "id": "o3",
+                "symbol": "AVUV",
+                "side": "sell",
+                "state": "filled",
+                "filled_notional": "40",
+                "created_at": "2026-10-23T00:10:00Z",  # 20:10 on 22 Oct in New York
+            },
         ]
         write_raw_session(tmp_path, orders=orders)
         snap, _ = rr.build_snapshot(tmp_path / "raw" / TODAY.isoformat(), NOW)
         assert snap.open_order_ids == ("o2",)
         assert [(t.order_id, t.side, t.notional, t.trade_date) for t in snap.trades] == [
-            ("o1", Side.BUY, D(100), date(2026, 10, 20))
+            ("o1", Side.BUY, D(100), date(2026, 10, 20)),
+            ("o3", Side.SELL, D(40), date(2026, 10, 22)),
         ]
-        assert [o.order_id for o in rr.broker_orders(tmp_path / "raw" / TODAY.isoformat())] == ["o1", "o2"]
+        assert [o.order_id for o in rr.broker_orders(tmp_path / "raw" / TODAY.isoformat())] == ["o1", "o2", "o3"]
 
     def test_failed_captures_ignored_and_missing_tools_reported(self, tmp_path):
         capture_tool(tmp_path, "get_portfolio", mcp({"cash": "1"}), event="PostToolUseFailure")
@@ -227,6 +242,18 @@ class TestRobinhoodRaw:
             rr.parse_tax_lots([{"symbol": "VTI", "quantity": "0", "cost_basis": "5", "acquired_date": "2025-01-01"}])
         with pytest.raises(SnapshotError, match="must be a list"):
             rr.parse_historicals([{"symbol": "VTI", "historicals": "none"}])
+        with pytest.raises(SnapshotError, match="side must be buy or sell"):
+            rr.parse_orders(
+                [
+                    {
+                        "id": "x",
+                        "symbol": "VTI",
+                        "side": "sell_short",
+                        "state": "filled",
+                        "created_at": "2026-11-02T14:00:00Z",
+                    }
+                ]
+            )
 
     def test_per_share_cost_and_alternative_spellings(self):
         lots = rr.parse_tax_lots(

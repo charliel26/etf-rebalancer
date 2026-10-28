@@ -476,8 +476,17 @@ def write_yahoo_csv(path, ticker, start, end, seed):
     for i in range(len(idx) - 1, 0, -1):
         factor[i - 1] = factor[i] * (1 - dividends[i] / close[i - 1])
     frame = pd.DataFrame(
-        {"Open": close * 0.999, "High": close * 1.01, "Low": close * 0.99, "Close": close, "Adj Close": close * factor,
-         "Volume": 1000, "Dividends": dividends, "Stock Splits": 0.0, "Capital Gains": 0.0},
+        {
+            "Open": close * 0.999,
+            "High": close * 1.01,
+            "Low": close * 0.99,
+            "Close": close,
+            "Adj Close": close * factor,
+            "Volume": 1000,
+            "Dividends": dividends,
+            "Stock Splits": 0.0,
+            "Capital Gains": 0.0,
+        },
         index=pd.DatetimeIndex(idx, name="Date"),
     )
     frame.to_csv(path / f"{ticker}.csv")
@@ -490,8 +499,9 @@ def fake_raw(tmp_path):
     for i, ticker in enumerate(tickers_needed(PARAMS)):
         start = INCEPTIONS.get(ticker, "2000-01-03")
         write_yahoo_csv(tmp_path, ticker, start, "2003-12-31", seed=i)
-    rates = pd.DataFrame({"observation_date": pd.bdate_range("1999-12-01", "2003-12-31").strftime("%Y-%m-%d"),
-                          "DTB3": 4.5})
+    rates = pd.DataFrame(
+        {"observation_date": pd.bdate_range("1999-12-01", "2003-12-31").strftime("%Y-%m-%d"), "DTB3": 4.5}
+    )
     rates.to_csv(tmp_path / "DTB3.csv", index=False)
     return tmp_path
 
@@ -516,8 +526,9 @@ class TestRealDataPath:
     def test_compare_main_on_cached_data(self, fake_raw, tmp_path, monkeypatch):
         monkeypatch.setattr(compare, "RAW_DIR", fake_raw)
         monkeypatch.setattr(compare, "REPORT", tmp_path / "out" / "report.md")
-        monkeypatch.setattr(compare, "load_params", lambda: dataclasses.replace(
-            PARAMS, robustness_seeds=(1,), blocks=2))
+        monkeypatch.setattr(
+            compare, "load_params", lambda: dataclasses.replace(PARAMS, robustness_seeds=(1,), blocks=2)
+        )
         assert compare.main([]) == 0
         text = (tmp_path / "out" / "report.md").read_text()
         assert "SYNTHETIC" not in text and "Data: yahoo" in text and "| VTI | 2001-06-01 |" in text

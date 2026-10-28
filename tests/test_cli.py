@@ -111,6 +111,24 @@ class TestAuthorityCommands:
         assert code == 0 and "approved" in out
         with Ledger(project / "state" / "ledger.sqlite3") as ledger:
             assert ledger.has_approval(run.run_id, run.plan_sha256, TODAY)
+            assert ledger.approval_reference(run.run_id, run.plan_sha256) is None
+
+    def test_compliance_approval_needs_a_reference(self, tmp_path):
+        compliance = {"compliance": {"min_holding_days": 30, "approval_for_all_trades": True}}
+        project = make_project(tmp_path, limits=compliance)
+        write_raw_session(project / "state")
+        cli(project, "snapshot")
+        cli(project, "plan", env=LIVE_ENV)
+        run = live_run(project)
+        assert run.requires_approval
+        assert cli(project, "approve", run.run_id, tty=True, inputs=[run.plan_sha256[:8]])[0] == 2
+        code, out = cli(
+            project, "approve", run.run_id, "--reference", "PC-1234", tty=True, inputs=[run.plan_sha256[:8]]
+        )
+        assert code == 0 and "PC-1234" in out
+        with Ledger(project / "state" / "ledger.sqlite3") as ledger:
+            assert ledger.approval_reference(run.run_id, run.plan_sha256) == "PC-1234"
+            assert ledger.approval_reference("other", run.plan_sha256) is None
 
     def test_approve_refuses_other_runs_and_tampered_plans(self, project):
         assert cli(project, "approve", "nope", tty=True, inputs=["x"])[0] == 2
@@ -305,3 +323,65 @@ class TestPaperRun:
     def test_guard_refusal_stops_paper_run(self, project):
         code, out, broker = self._run(project, LIVE_ENV)  # never armed
         assert code == 1 and "not armed" in out and broker.submitted == []
+
+
+class TestPending:
+    def test_nothing_without_live_run(self, project):
+        assert cli(project, "pending", env=LIVE_ENV)[1] == "[]"
+
+    def test_lists_pending_lines_and_drops_claimed(self, project):
+        cli(project, "plan", env=LIVE_ENV)
+        listed = json.loads(cli(project, "pending", env=LIVE_ENV)[1])
+        assert [x["symbol"] for x in listed] == ["AVUV", "QQQM", "VTI", "VXUS"]
+        assert listed[0] == {"line_id": "L1", "symbol": "AVUV", "side": "buy", "notional_usd": "139.50"}
+        run = live_run(project)
+        with Ledger(project / "state" / "ledger.sqlite3") as ledger:
+            ledger.claim_line(
+                run.run_id,
+                "VTI",
+                "buy",
+                D("515"),
+                tolerance=D(1),
+                daily_cap=D(3000),
+                run_date=TODAY,
+                now=NOW,
+                tool_use_id="t1",
+            )
+        assert [x["symbol"] for x in json.loads(cli(project, "pending", env=LIVE_ENV)[1])] == ["AVUV", "QQQM", "VXUS"]
+
+    def test_says_why_nothing_can_be_placed(self, project):
+        cli(project, "plan", env=LIVE_ENV)
+        dry = cli(project, "pending")[1]
+        assert dry.startswith("[]") and "dry-run session" in dry
+        (project / "KILL").touch()
+        assert "kill switch" in cli(project, "pending", env=LIVE_ENV)[1]
+        (project / "KILL").unlink()
+        expired = cli(project, "pending", env=LIVE_ENV, now=NOW + timedelta(minutes=61))[1]
+        assert expired.startswith("[]") and "can't be executed any more" in expired
+
+    def test_approval_gates_the_list(self, project):
+        write_raw_session(project / "state", cash="0")
+        cli(project, "snapshot")
+        cli(project, "plan", "--annual-reset", env=LIVE_ENV)
+        out = cli(project, "pending", env=LIVE_ENV)[1]
+        assert out.startswith("[]") and "needs approval" in out
+        run = live_run(project)
+        cli(project, "approve", run.run_id, tty=True, inputs=[run.plan_sha256[:8]])
+        assert len(json.loads(cli(project, "pending", env=LIVE_ENV)[1])) >= 1
+
+
+class TestTradingWindow:
+    def test_live_plan_only_inside_the_window(self, project):
+        early = NOW.replace(hour=13, minute=0)  # 08:00 in New York
+        code, out = cli(project, "plan", env=LIVE_ENV, now=early)
+        assert code == 0 and "mode=dry_run" in out and "OUTSIDE_TRADING_WINDOW" in out
+        assert live_run(project) is None
+        assert "mode=live" in cli(project, "plan", env=LIVE_ENV)[1]
+
+    def test_dry_runs_do_not_need_the_calendar(self, project):
+        def no_calendar(day):
+            raise AssertionError("dry runs must not look up the session")
+
+        rt, out = runtime(project, now=NOW.replace(hour=23))
+        rt.bounds = no_calendar
+        assert main(["plan"], runtime=rt) == 0 and "mode=dry_run" in "\n".join(out)

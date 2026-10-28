@@ -180,6 +180,8 @@ class TestIntegrity:
             "src/rebalancer/guard.py",
             "src/rebalancer/plan.py",
             ".claude/settings.json",
+            ".claude/commands/rebalance.md",
+            "uv.lock",
         ):
             assert path in manifest
 

@@ -46,6 +46,7 @@ def make_snapshot(
     tradability=None,
     as_of=NOW,
     extra_holdings=(),
+    equity=None,
 ) -> Snapshot:
     shares = {s: D(v) for s, v in (shares or {}).items()}
     holdings = tuple(Holding(s, q) for s, q in shares.items()) + tuple(extra_holdings)
@@ -65,6 +66,7 @@ def make_snapshot(
         open_order_ids=tuple(open_orders),
         trades=tuple(trades),
         tradability=tuple(tradability),
+        reported_equity=None if equity is None else D(equity),
     )
 
 

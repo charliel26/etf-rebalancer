@@ -114,6 +114,20 @@ class TestClaims:
         result = claim(ledger, symbol="VTI", side="sell", amount="300", cap="250", tool_use_id="t2")
         assert not result.ok and "daily notional limit" in result.reason
 
+    def test_daily_cap_counts_amounts_actually_sent(self, ledger):
+        # Plan lines of 500 + 500 under a 1,000 cap. Sending 500.99 for the first
+        # (inside the $1 match tolerance) must leave only 499.01 for the second.
+        orders = [
+            {"line_id": "L1", "symbol": "VTI", "side": "buy", "notional_usd": 500.0, "reason": "x"},
+            {"line_id": "L2", "symbol": "VXUS", "side": "buy", "notional_usd": 500.0, "reason": "x"},
+        ]
+        ledger.record_run(plan(orders=orders, lots={}), "p", NOW)
+        assert claim(ledger, symbol="VTI", amount="500.99", cap="1000").ok
+        assert ledger.notional_used(DAY) == D("500.99")
+        refused = claim(ledger, symbol="VXUS", amount="499.50", cap="1000", tool_use_id="t2")
+        assert not refused.ok and "daily notional limit" in refused.reason
+        assert claim(ledger, symbol="VXUS", amount="499.01", cap="1000", tool_use_id="t3").ok
+
     def test_dry_run_lines_do_not_count(self, ledger):
         ledger.record_run(plan("d1", mode="dry_run"), "p", NOW)
         assert ledger.notional_used(DAY) == 0
@@ -173,6 +187,36 @@ class TestReconcile:
         assert ledger.reconcile("r1", [], NOW + timedelta(minutes=2), tolerance=D(1)) == {}
         assert ledger.reconcile("r1", [], NOW + timedelta(minutes=6), tolerance=D(1)) == {"L2": "NOT_PLACED"}
         ledger.rearm_line("r1", "L2", NOW)
+
+    def test_not_placed_line_is_linked_when_the_order_shows_up(self, ledger):
+        ledger.record_run(plan(), "p", NOW)
+        claim(ledger, tool_use_id="t1")
+        assert ledger.reconcile("r1", [], NOW + timedelta(minutes=6), tolerance=D(1)) == {"L2": "NOT_PLACED"}
+        assert ledger.notional_used(DAY) == 0
+        late = order("o-late", "VXUS", "buy", "filled", filled="200", created=NOW + timedelta(seconds=30))
+        assert ledger.reconcile("r1", [late], NOW + timedelta(minutes=9), tolerance=D(1)) == {"L2": "FILLED"}
+        assert ledger.lines("r1")[1].broker_order_id == "o-late"
+        assert ledger.notional_used(DAY) == D(200)
+        assert ledger.reconcile("r1", [], NOW + timedelta(minutes=10), tolerance=D(1)) == {}
+
+    def test_trade_date_is_the_new_york_date(self, ledger):
+        ledger.record_run(plan(), "p", NOW)
+        claim(ledger, tool_use_id="t1")
+        ledger.mark_submitted("t1", "o1", NOW)
+        evening = datetime(2026, 11, 3, 0, 30, tzinfo=UTC)  # 19:30 on 2 Nov in New York
+        ledger.reconcile(
+            "r1", [order("o1", "VXUS", "buy", "filled", filled="200", filled_at=evening)], NOW, tolerance=D(1)
+        )
+        assert [t.trade_date for t in ledger.trades_since(DAY - timedelta(days=1))] == [DAY]
+
+    def test_partial_then_filled_updates_the_trade(self, ledger):
+        ledger.record_run(plan(), "p", NOW)
+        claim(ledger, tool_use_id="t1")
+        ledger.mark_submitted("t1", "o1", NOW)
+        ledger.reconcile("r1", [order("o1", "VXUS", "buy", "partially_filled", filled="80")], NOW, tolerance=D(1))
+        ledger.reconcile("r1", [order("o1", "VXUS", "buy", "filled", filled="200")], NOW, tolerance=D(1))
+        assert [(t.order_id, t.notional) for t in ledger.trades_since(DAY)] == [("o1", D(200))]
+        assert ledger.lines("r1")[1].status == "FILLED"
 
     def test_unlinked_matching_rules(self, ledger):
         ledger.record_run(plan(), "p", NOW)

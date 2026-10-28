@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "etf-rebalancer"
-version = "0.1.0"
+version = "0.2.0"
 description = "Deterministic, tax-aware, band-based ETF rebalancer with a fail-closed execution guard for an LLM agent."
 readme = "README.md"
 requires-python = ">=3.11"

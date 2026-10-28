@@ -2,9 +2,12 @@
 
 `rebalancer arm` (interactive terminal only) records the hashes in
 state/armed.json. The guard refuses every order while any protected file
-differs from what was armed, so a change to code, config, hooks or settings
-needs a human to re-arm before it can trade. This makes tampering visible; it
-cannot stop a process with your shell rights from rewriting files.
+differs from what was armed, so a change to code, config, hooks, settings,
+the agent's procedure or the locked dependencies needs a human to re-arm
+before it can trade. This makes tampering visible; it cannot stop a process
+with your shell rights from rewriting files (and a rewritten guard would not
+run this check), which is why .claude/settings.json also denies Claude's
+file tools on these paths.
 """
 
 from __future__ import annotations
@@ -19,6 +22,9 @@ PROTECTED_GLOBS = (
     "hooks/*.py",
     "src/rebalancer/**/*.py",
     ".claude/settings.json",
+    ".claude/commands/*.md",
+    "pyproject.toml",
+    "uv.lock",
 )
 ARMED_FILE = "armed.json"
 
